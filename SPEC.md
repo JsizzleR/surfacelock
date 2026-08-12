@@ -106,7 +106,14 @@ keys); they identify the *entry*, never the server — the hashes do that.
 - `h_instructions` (string, required): hash of the canonical form of the `instructions`
   JSON string, or the absent sentinel. When `instructions` is present, this MUST equal
   the recomputed hash (§7).
-- `surface_hash` (string, required): the rollup, §5.
+- `surface_hash` (string, required): the rollup, §5. A CONTENT digest of the admitted
+  surface — not the complete lock identity: `protocol.flow` is interpretation metadata
+  a verifier MUST honor alongside it (§3.4), so systems keying on `surface_hash` alone
+  MUST NOT treat equal hashes as equal lock semantics. (Binding flow into a
+  domain-separated preimage is deferred to the next `lockfile_version`, which the
+  prompts/resources extension already motivates.) A consumer MAY treat an absent
+  `protocol.flow` on an entry whose era is a stateless revision as a migration error
+  rather than fall back to offer-driven selection.
 - `tools` (array, required, may be empty): one entry per tool, sorted ascending by the
   byte-wise (i.e. UTF-8 code unit) order of `name`. Zero tools is a valid surface.
 

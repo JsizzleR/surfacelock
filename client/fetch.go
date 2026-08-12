@@ -79,7 +79,10 @@ type toolsListPage struct {
 // failure (cap, cursor loop, inadmissible page) must be terminal — a second
 // classic enumeration would let a hostile hybrid serve different bytes over
 // the other flow and re-classify a deliberate inadmissibility as a transport
-// failure (Codex@max finding, phase-2 gate).
+// failure (Codex@max finding, phase-2 gate). INVARIANT: nothing at or after
+// the commit point may construct or wrap an errPreCommit — errors.As is
+// ancestry-based, not phase-aware, so a post-commit error carrying this marker
+// anywhere in its chain would re-open the fallback it exists to close.
 type errPreCommit struct{ err error }
 
 func (e errPreCommit) Error() string { return e.err.Error() }
