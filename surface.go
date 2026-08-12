@@ -89,15 +89,18 @@ func Admit(raw RawSurface, lim Limits) (*Surface, error) {
 	s := &Surface{Offered: raw.Offered, Era: raw.Era, HInstr: AbsentSentinel}
 
 	if raw.Instructions != nil && !isNull(raw.Instructions) {
+		// Validity is checked on the RAW token: after json.Unmarshal, invalid UTF-8
+		// has already been replaced with U+FFFD, so a decoded-string check is vacuous
+		// against the wire (and JCS passes invalid bytes through verbatim).
+		if !utf8.Valid(raw.Instructions) {
+			return nil, inadmissible("instructions are not valid UTF-8")
+		}
 		var instr string
 		if err := json.Unmarshal(raw.Instructions, &instr); err != nil {
 			return nil, inadmissible("instructions is not a string")
 		}
 		if len(instr) > lim.MaxInstructionsBytes {
 			return nil, inadmissible("instructions exceed %d bytes", lim.MaxInstructionsBytes)
-		}
-		if !utf8.ValidString(instr) {
-			return nil, inadmissible("instructions are not valid UTF-8")
 		}
 		h, err := HashCanonical(raw.Instructions)
 		if err != nil {
@@ -112,6 +115,12 @@ func Admit(raw RawSurface, lim Limits) (*Surface, error) {
 	seen := map[string]bool{}
 	totalBytes := 0
 	for pi, page := range raw.Pages {
+		// Raw-byte UTF-8 check: JCS passes invalid UTF-8 through verbatim, so
+		// without this a hostile page would put non-UTF-8 bytes into the lockfile
+		// (against §3) and let drift hide behind U+FFFD-collapsed comparisons.
+		if !utf8.Valid(page) {
+			return nil, inadmissible("page %d is not valid UTF-8", pi+1)
+		}
 		var p toolsListPage
 		if err := json.Unmarshal(page, &p); err != nil {
 			return nil, inadmissible("page %d does not parse: %v", pi+1, err)
@@ -140,6 +149,11 @@ func Admit(raw RawSurface, lim Limits) (*Surface, error) {
 }
 
 func admitTool(rawTool json.RawMessage, lim Limits) (*Tool, error) {
+	// Repeated at the tool level because Validate re-admits stored lockfile bytes
+	// through this function without going through Admit's page check.
+	if !utf8.Valid(rawTool) {
+		return nil, inadmissible("tool is not valid UTF-8")
+	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(rawTool, &fields); err != nil {
 		return nil, inadmissible("tool is not a JSON object: %v", err)

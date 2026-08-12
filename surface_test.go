@@ -122,6 +122,18 @@ func TestAdmitHostileInput(t *testing.T) {
 		{"non-object inputSchema", RawSurface{Era: "e", Pages: pagesOf(`{"name":"a","inputSchema":[1]}`)}, lim, "inputSchema is not an object"},
 		{"null inputSchema treated absent", RawSurface{Era: "e", Pages: pagesOf(`{"name":"a","inputSchema":null}`)}, lim, ""},
 		{"page not parseable", RawSurface{Era: "e", Pages: []json.RawMessage{json.RawMessage(`{"tools":`)}}, lim, "does not parse"},
+		// Duplicate member names inside a tool object: last-key-wins decoding would
+		// show one value to the hash and another to a consumer; RFC 8785 refuses the
+		// object and admission must surface that as inadmissibility (measured:
+		// gowebpki/jcs errors on duplicate keys).
+		{"duplicate keys inside a tool", RawSurface{Era: "e", Pages: pagesOf(`{"name":"a","description":"x","description":"y"}`)}, lim, "Duplicate key"},
+		{"duplicate keys nested in schema", RawSurface{Era: "e", Pages: pagesOf(`{"name":"a","inputSchema":{"type":"object","type":"string"}}`)}, lim, "Duplicate key"},
+		// Invalid UTF-8 must be caught on RAW bytes: decoders replace it with U+FFFD,
+		// so any decoded-string check is vacuous against the wire.
+		{"invalid UTF-8 in page", RawSurface{Era: "e", Pages: []json.RawMessage{[]byte("{\"tools\":[{\"name\":\"a\",\"description\":\"b\xffc\"}]}")}}, lim, "not valid UTF-8"},
+		{"invalid UTF-8 in instructions", RawSurface{Era: "e", Instructions: json.RawMessage("\"i\xffj\""), Pages: pagesOf(valid)}, lim, "not valid UTF-8"},
+		{"lone surrogate escape", RawSurface{Era: "e", Pages: pagesOf(`{"name":"a","description":"\ud800"}`)}, lim, "Missing surrogate"},
+		{"number beyond double range", RawSurface{Era: "e", Pages: pagesOf(`{"name":"a","inputSchema":{"type":"object","maximum":1e400}}`)}, lim, "out of range"},
 		{"missing era", RawSurface{Era: "", Pages: pagesOf(valid)}, lim, "protocolVersion is empty"},
 		{"control chars in era", RawSurface{Era: "20\n25", Pages: pagesOf(valid)}, lim, "control characters"},
 		{"oversized era", RawSurface{Era: strings.Repeat("e", 65), Pages: pagesOf(valid)}, lim, "exceeds 64 bytes"},

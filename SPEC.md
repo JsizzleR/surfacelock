@@ -222,8 +222,24 @@ produces a drift verdict.
   beyond the cap. The caps are implementation-defined but MUST exist and MUST be
   documented. Reference implementation defaults: 4 MiB/page, 1 MiB/tool, 16 MiB/surface,
   10 000 tools, 64 KiB instructions.
+- **Invalid UTF-8** — any page, tool, or instructions value whose RAW bytes are not
+  valid UTF-8. This MUST be checked on the wire bytes: most JSON decoders silently
+  replace invalid sequences with U+FFFD, so a decoded-string check is vacuous, and
+  RFC 8785 passes invalid bytes through verbatim — admitting them would put non-UTF-8
+  bytes into the artifact (§3) and let drift hide behind replacement-collapsed
+  comparisons.
+- **Objects with duplicate member names** — RFC 8785 rejects them (measured:
+  `gowebpki/jcs` errors), and this spec relies on that: a duplicate-key tool object is
+  uncanonicalizable, hence inadmissible. An implementation whose canonicalizer
+  tolerates duplicate keys MUST refuse them itself — decoder last-key-wins semantics
+  would let a tool present one value to the hash and another to a consumer.
 - **Uncanonicalizable JSON** — any value RFC 8785 cannot transform (e.g. numbers outside
-  IEEE-754 double range). Fail closed; never approximate.
+  IEEE-754 double range, lone surrogate escapes). Fail closed; never approximate.
+  Stated bound, inherent to RFC 8785's ES6 number serialization: integers of magnitude
+  above 2^53 collapse to their nearest double (`9007199254740993` and
+  `9007199254740992` canonicalize identically), so drift within one double-equivalence
+  class is invisible to the hashes. Such constants in tool schemas are already
+  non-interoperable JSON (RFC 7493).
 - **Missing era** — an `initialize` result without a string `protocolVersion` is a
   protocol failure (§9 exit 3): the surface cannot be era-tagged, so there is no surface.
 
