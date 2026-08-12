@@ -89,6 +89,11 @@ keys); they identify the *entry*, never the server — the hashes do that.
   This is the era tag; it is bound into `surface_hash` (§5). Classic flow: the
   `initialize` result's `protocolVersion`. Stateless flow (§3.4): the offered revision
   itself, which `server/discover`'s `supportedVersions` MUST have confirmed.
+- `protocol.flow` (string, optional): `"stateless"` or `"classic"` — the fetch flow
+  (§3.4) the lock was taken over. Writers MUST record it; verifiers MUST re-use it
+  (§3.4), falling back to offer-driven selection only when the field is absent
+  (pre-flow lockfiles). Recorded, never hashed: it is negotiation provenance, not
+  surface bytes.
 - `server_info` (object, optional, informational): `name` and `version` from the
   `initialize` result's `serverInfo`, stored verbatim. NOT part of the surface, NOT
   hashed, never a drift verdict — a server's self-report is not evidence. Writers MUST
@@ -143,17 +148,31 @@ in which face they expose (measured: pre-revision SDK servers answer classic onl
 refuse a cold `server/discover`; a stateless-only endpoint refuses `initialize`
 outright), so a fetcher MUST select its flow from the offered revision:
 
-- **Offered `2026-07-28` or later**: try the stateless flow — `server/discover`
-  (whose result supplies `instructions` and `server_info`, and whose
+- **A recorded `protocol.flow`** pins the flow outright: a verifier speaks that flow
+  and ONLY that flow. Without the pin, a replacement server speaking only the other
+  flow could serve the locked bytes and pass verification while the negotiation path
+  silently changed — flow identity is part of what the lock reproduces.
+- **Offered `2026-07-28` or later (no recorded flow)**: try the stateless flow —
+  `server/discover` (whose result supplies `instructions` and `server_info`, and whose
   `supportedVersions` MUST include the offered revision), then fully-paginated
-  `tools/list` with the full `_meta` envelope on every request, no handshake. If the
-  discover attempt fails for any reason, fall back to one classic attempt on a fresh
-  session state; if both fail, report both refusals.
-- **Offered pre-revision values**: the classic flow only — `initialize` (offering
-  `protocol.offered`), `notifications/initialized`, then fully-paginated `tools/list`.
+  `tools/list` with the full `_meta` envelope on every request, no handshake.
+  A version-confirmed `server/discover` is the flow's COMMIT POINT: every later
+  failure (page caps, cursor loops, inadmissible pages) is terminal for the fetch —
+  a second enumeration over the classic flow would let a hostile hybrid serve
+  different bytes per flow and re-classify a deliberate inadmissibility as a
+  transport failure. Only a PRE-commit failure falls back to one classic attempt, on
+  a FRESH session (a reused stdio child could pre-queue responses for the fallback's
+  predictable request ids); if both fail, report both refusals and preserve each
+  arm's error class.
+- **Offered pre-revision values (no recorded flow)**: the classic flow only —
+  `initialize` (offering `protocol.offered`), `notifications/initialized`, then
+  fully-paginated `tools/list`.
 
-Because verifiers re-offer `protocol.offered`, an entry locked over either flow is
-re-verified over the same flow selection, and the era stays reproducible.
+Fetchers MUST read `initialize`/`server/discover` results with exact-key discipline:
+refuse a result that fails canonicalization (duplicate keys) or carries a
+case-variant alias of a consumed key — a case-insensitive last-wins decode would let
+`{"instructions":"I","INSTRUCTIONS":"K"}` hash one value while an exact-case reader
+sees the other (the same aliasing rule §6 applies to the `tools` page key).
 
 ## 4. Canonical rendering
 

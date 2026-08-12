@@ -39,11 +39,17 @@ type ServerLock struct {
 	Tools        []ToolLock  `json:"tools"`
 }
 
-// Protocol records the offered and negotiated protocol revisions. Verifiers re-offer
-// the same value so negotiation is reproducible; the negotiated revision is the era.
+// Protocol records the offered and negotiated protocol revisions, and the fetch
+// flow the lock was taken over. Verifiers re-offer the same value AND re-use the
+// recorded flow so negotiation is reproducible (SPEC.md §3.4): without the flow,
+// a replacement server speaking only the OTHER flow could serve the locked bytes
+// and pass verification while the negotiation path silently changed. The
+// negotiated revision is the era. flow is optional for pre-flow lockfiles; a
+// verifier falls back to offer-driven selection when it is absent.
 type Protocol struct {
 	Offered string `json:"offered"`
 	Era     string `json:"era"`
+	Flow    string `json:"flow,omitempty"` // "stateless" | "classic"
 }
 
 // ServerInfo is the informational self-report from initialize. Never hashed, never
@@ -80,7 +86,7 @@ func EntryFromSurface(transport, target string, args []string, s *Surface) (*Ser
 		Transport:    transport,
 		Target:       target,
 		Args:         args,
-		Protocol:     Protocol{Offered: s.Offered, Era: s.Era},
+		Protocol:     Protocol{Offered: s.Offered, Era: s.Era, Flow: s.Flow},
 		ServerInfo:   s.ServerInfo,
 		Instructions: s.Instructions,
 		HInstr:       s.HInstr,
@@ -182,6 +188,9 @@ func (e *ServerLock) validateShape() error {
 	// path validates it via CheckEra).
 	if err := validName(e.Protocol.Era, eraCapBytes); err != nil {
 		return fmt.Errorf("protocol.era %v", err)
+	}
+	if f := e.Protocol.Flow; f != "" && f != "stateless" && f != "classic" {
+		return fmt.Errorf("protocol.flow %.32q is not \"stateless\" or \"classic\"", f)
 	}
 	if err := validName(e.Protocol.Offered, eraCapBytes); err != nil {
 		return fmt.Errorf("protocol.offered %v", err)

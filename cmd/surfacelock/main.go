@@ -171,7 +171,7 @@ func (c *cli) targetRef() (client.Ref, string, error) {
 
 func refFromEntry(e *surfacelock.ServerLock, env []string) client.Ref {
 	return client.Ref{Transport: e.Transport, Target: e.Target, Args: e.Args,
-		Env: env, Offered: e.Protocol.Offered}
+		Env: env, Offered: e.Protocol.Offered, Flow: e.Protocol.Flow}
 }
 
 func (c *cli) fetchSurface(ref client.Ref) (*surfacelock.Surface, error) {

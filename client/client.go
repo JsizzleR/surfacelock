@@ -37,7 +37,7 @@ type envelope struct {
 type session interface {
 	call(ctx context.Context, method string, params any) (json.RawMessage, error)
 	notify(ctx context.Context, method string, params any) error
-	close()
+	close(ctx context.Context)
 }
 
 func marshalReq(id int64, method string, params any) ([]byte, error) {
@@ -238,12 +238,16 @@ func (h *httpSession) notify(ctx context.Context, method string, params any) err
 	return nil
 }
 
-func (h *httpSession) close() {
+func (h *httpSession) close(parent context.Context) {
 	if h.sessionID == "" {
 		return
 	}
-	// Best-effort session teardown; bounded so close never hangs on a dead server.
-	ctx, cancel := context.WithTimeout(context.Background(), closeTimeout)
+	// Best-effort session teardown, bounded by BOTH the caller's ctx and a small
+	// cap: a hostile server that hands out a session id and then stalls the
+	// DELETE must not extend the caller's budget — on context.Background() this
+	// was a candidate-triggered 5s overrun of the deploy capture's stated
+	// ceiling (adversarial-panel finding, phase-2 gate).
+	ctx, cancel := context.WithTimeout(parent, closeTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, h.url, nil)
 	if err != nil {
@@ -370,7 +374,7 @@ func (s *stdioSession) notify(ctx context.Context, method string, params any) er
 	return s.send(ctx, body)
 }
 
-func (s *stdioSession) close() {
+func (s *stdioSession) close(context.Context) { // SIGKILL+Wait is already bounded; ctx is the interface's, not a budget here
 	// Idempotent: a second close() must not signal a REUSED process group after Wait
 	// has reaped the pid.
 	s.closed.Do(func() {

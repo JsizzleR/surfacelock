@@ -3,9 +3,11 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/JsizzleR/surfacelock"
@@ -25,6 +27,15 @@ const DefaultOfferedVersion = ModernRevision
 // populations are disjoint, so one flow cannot serve both).
 const ModernRevision = "2026-07-28"
 
+// Fetch flows (SPEC.md §3.4), recorded in the lockfile entry so a verifier
+// reproduces the flow the lock was taken over — an unrecorded flow would let a
+// replacement server that speaks only the OTHER flow serve the locked bytes
+// and pass verification while the negotiation path silently changed.
+const (
+	FlowStateless = "stateless"
+	FlowClassic   = "classic"
+)
+
 const closeTimeout = 5 * time.Second
 
 // Reserved _meta envelope keys every stateless-revision request must carry.
@@ -42,6 +53,12 @@ type Ref struct {
 	Env       []string // extra KEY=VAL pairs for stdio; never recorded in a lockfile
 	Offered   string   // protocolVersion to offer; DefaultOfferedVersion if empty
 
+	// Flow pins the fetch flow: FlowStateless, FlowClassic, or "" for
+	// offer-driven selection with fallback (SPEC.md §3.4). Verifiers pass the
+	// lockfile's recorded flow so a lock is re-verified over the flow it was
+	// taken with, never over whichever one the current server prefers.
+	Flow string
+
 	// HTTPClient, when non-nil, carries the http transport's requests ("http"
 	// only; ignored for stdio). It exists for callers whose target is not
 	// directly dialable by a default client — a unix-socket upstream behind a
@@ -50,37 +67,35 @@ type Ref struct {
 	HTTPClient *http.Client
 }
 
-type initializeResult struct {
-	ProtocolVersion json.RawMessage `json:"protocolVersion"`
-	ServerInfo      json.RawMessage `json:"serverInfo"`
-	Instructions    json.RawMessage `json:"instructions"`
-}
-
-// discoverResult is the server/discover result's read surface. Like
-// initializeResult it is a struct decode: the fields feed era validation,
-// ServerInfo sanitization and instructions hashing — all of which treat the
-// values as hostile downstream.
-type discoverResult struct {
-	SupportedVersions []string        `json:"supportedVersions"`
-	ServerInfo        json.RawMessage `json:"serverInfo"`
-	Instructions      json.RawMessage `json:"instructions"`
-}
-
 type toolsListPage struct {
 	Tools      []json.RawMessage `json:"tools"`
 	NextCursor json.RawMessage   `json:"nextCursor"`
 }
+
+// errPreCommit marks a modern-flow failure that happened BEFORE a
+// version-confirmed server/discover — the flow-selection commit point. Only
+// these failures may fall back to classic: once discover has confirmed the
+// offered revision the server IS a stateless server, and a later tools/list
+// failure (cap, cursor loop, inadmissible page) must be terminal — a second
+// classic enumeration would let a hostile hybrid serve different bytes over
+// the other flow and re-classify a deliberate inadmissibility as a transport
+// failure (Codex@max finding, phase-2 gate).
+type errPreCommit struct{ err error }
+
+func (e errPreCommit) Error() string { return e.err.Error() }
+func (e errPreCommit) Unwrap() error { return e.err }
 
 // Fetch runs one fresh session against the server and returns the verbatim
 // tools/list surface for admission by surfacelock.Admit, applying the
 // fetch-side hostile-input rules (SPEC.md §6): page byte caps, page count cap,
 // cursor size cap, and cursor-loop refusal.
 //
-// Flow selection is offer-driven (SPEC.md §3.1): offering ModernRevision
-// tries the stateless flow (server/discover, `_meta`-enveloped tools/list, no
-// handshake) and falls back to the classic initialize handshake when the
-// server refuses discover; offering any earlier revision speaks classic only,
-// so a verifier re-offering a recorded era reproduces the recorded flow.
+// Flow selection (SPEC.md §3.4): ref.Flow when set; otherwise offer-driven —
+// offering ModernRevision tries the stateless flow and falls back to ONE
+// classic attempt on a FRESH session iff the stateless attempt failed before
+// its commit point (a fresh session because a hostile stdio child could
+// pre-queue responses for the fallback's predictable ids on a reused one);
+// earlier offers speak classic only.
 func Fetch(ctx context.Context, ref Ref, lim surfacelock.Limits) (*surfacelock.RawSurface, error) {
 	offered := ref.Offered
 	if offered == "" {
@@ -92,6 +107,37 @@ func Fetch(ctx context.Context, ref Ref, lim surfacelock.Limits) (*surfacelock.R
 		return nil, err
 	}
 
+	switch ref.Flow {
+	case FlowStateless:
+		return fetchOnce(ctx, ref, lim, offered, true)
+	case FlowClassic:
+		return fetchOnce(ctx, ref, lim, offered, false)
+	case "":
+		if offered != ModernRevision {
+			return fetchOnce(ctx, ref, lim, offered, false)
+		}
+		raw, merr := fetchOnce(ctx, ref, lim, offered, true)
+		if merr == nil {
+			return raw, nil
+		}
+		var pre errPreCommit
+		if !errors.As(merr, &pre) {
+			return nil, merr // post-commit: the server is stateless; its failure is terminal
+		}
+		raw, cerr := fetchOnce(ctx, ref, lim, offered, false)
+		if cerr == nil {
+			return raw, nil
+		}
+		// Both %w so a machine-readable class (ErrInadmissible) from EITHER
+		// attempt survives errors.Is on the joined failure.
+		return nil, fmt.Errorf("server/discover: %w; initialize fallback: %w", merr, cerr)
+	default:
+		return nil, fmt.Errorf("unknown flow %q", ref.Flow)
+	}
+}
+
+// fetchOnce opens ONE fresh session and runs a single flow over it.
+func fetchOnce(ctx context.Context, ref Ref, lim surfacelock.Limits, offered string, stateless bool) (*surfacelock.RawSurface, error) {
 	var sess session
 	var err error
 	switch ref.Transport {
@@ -105,24 +151,9 @@ func Fetch(ctx context.Context, ref Ref, lim surfacelock.Limits) (*surfacelock.R
 	if err != nil {
 		return nil, fmt.Errorf("start: %w", err)
 	}
-	defer sess.close()
-
-	if offered == ModernRevision {
-		raw, merr := fetchModern(ctx, sess, offered, lim)
-		if merr == nil {
-			return raw, nil
-		}
-		// A server refusing discover may still negotiate the classic handshake
-		// (every pre-stateless SDK does). Reset any transport state the failed
-		// attempt left behind so the fallback starts a genuinely fresh session.
-		if h, ok := sess.(*httpSession); ok {
-			h.sessionID, h.proto = "", ""
-		}
-		raw, cerr := fetchClassic(ctx, sess, offered, lim)
-		if cerr == nil {
-			return raw, nil
-		}
-		return nil, fmt.Errorf("server/discover: %v; initialize fallback: %w", merr, cerr)
+	defer sess.close(ctx)
+	if stateless {
+		return fetchModern(ctx, sess, offered, lim)
 	}
 	return fetchClassic(ctx, sess, offered, lim)
 }
@@ -137,31 +168,68 @@ func metaEnvelope(offered string) map[string]any {
 	}
 }
 
+// resultFields decodes a JSON-RPC result object with EXACT keys. It refuses a
+// result that (a) is not canonicalizable — which catches duplicate keys at any
+// depth — or (b) carries a case-variant alias of any consumed key: encoding/json
+// struct decoding matches case-insensitively last-wins, so
+// {"instructions":"I","INSTRUCTIONS":"K"} would hash K while an exact-case
+// consumer reads I — a parser-differential that lets one (era, hash) pair cover
+// two different prompt-bearing surfaces (the D-346 shape, found by Codex@max on
+// this diff; the same guard already exists for the "tools" page key in Admit).
+func resultFields(raw json.RawMessage, what string, keys ...string) (map[string]json.RawMessage, error) {
+	if _, err := surfacelock.Canonicalize(raw); err != nil {
+		return nil, fmt.Errorf("%s: result is not canonicalizable: %v", what, err)
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return nil, fmt.Errorf("%s: bad result: %w", what, err)
+	}
+	for k := range obj {
+		for _, want := range keys {
+			if k != want && strings.EqualFold(k, want) {
+				return nil, fmt.Errorf("%s: result carries a case-variant of %q: %q", what, want, k)
+			}
+		}
+	}
+	return obj, nil
+}
+
 // fetchModern is the stateless flow: server/discover for the surface's
 // instructions/serverInfo, then `_meta`-enveloped tools/list pages. The era is
 // the offered revision itself — each request names the dialect it speaks — and
 // discover's supportedVersions must confirm it, or the dialect the bytes were
-// served under is unknown and there is no surface to era-tag.
+// served under is unknown and there is no surface to era-tag. Every failure up
+// to and including that confirmation is wrapped errPreCommit; nothing after it
+// is.
 func fetchModern(ctx context.Context, sess session, offered string, lim surfacelock.Limits) (*surfacelock.RawSurface, error) {
 	discRaw, err := sess.call(ctx, "server/discover", map[string]any{"_meta": metaEnvelope(offered)})
 	if err != nil {
-		return nil, err
+		return nil, errPreCommit{err}
 	}
-	var dr discoverResult
-	if err := json.Unmarshal(discRaw, &dr); err != nil {
-		return nil, fmt.Errorf("server/discover: bad result: %w", err)
+	obj, err := resultFields(discRaw, "server/discover", "supportedVersions", "serverInfo", "instructions")
+	if err != nil {
+		return nil, errPreCommit{err}
 	}
-	if !slices.Contains(dr.SupportedVersions, offered) {
-		return nil, fmt.Errorf("server/discover: supportedVersions %q does not include the offered %q", dr.SupportedVersions, offered)
+	var supported []string
+	if raw, ok := obj["supportedVersions"]; ok {
+		if err := json.Unmarshal(raw, &supported); err != nil {
+			return nil, errPreCommit{fmt.Errorf("server/discover: supportedVersions is not a string array")}
+		}
 	}
+	if !slices.Contains(supported, offered) {
+		return nil, errPreCommit{fmt.Errorf("server/discover: supportedVersions %q does not include the offered %q", supported, offered)}
+	}
+	// The commit point: the server has confirmed it serves the offered
+	// stateless revision. From here every failure is terminal for the fetch.
 	if h, ok := sess.(*httpSession); ok {
 		h.proto = offered
 	}
 	raw := &surfacelock.RawSurface{
 		Offered:      offered,
 		Era:          offered,
-		Instructions: dr.Instructions,
-		ServerInfo:   dr.ServerInfo,
+		Flow:         FlowStateless,
+		Instructions: obj["instructions"],
+		ServerInfo:   obj["serverInfo"],
 	}
 	if err := fetchPages(ctx, sess, raw, lim, func(cursor string) any {
 		params := map[string]any{"_meta": metaEnvelope(offered)}
@@ -188,12 +256,12 @@ func fetchClassic(ctx context.Context, sess session, offered string, lim surface
 	if err != nil {
 		return nil, fmt.Errorf("initialize: %w", err)
 	}
-	var ir initializeResult
-	if err := json.Unmarshal(initRaw, &ir); err != nil {
-		return nil, fmt.Errorf("initialize: bad result: %w", err)
+	obj, err := resultFields(initRaw, "initialize", "protocolVersion", "serverInfo", "instructions")
+	if err != nil {
+		return nil, err
 	}
 	var era string
-	if err := json.Unmarshal(ir.ProtocolVersion, &era); err != nil || era == "" {
+	if err := json.Unmarshal(obj["protocolVersion"], &era); err != nil || era == "" {
 		// No string protocolVersion means the surface cannot be era-tagged: there
 		// is no surface (SPEC.md §6), and that is a protocol failure, not drift.
 		return nil, fmt.Errorf("initialize: result carries no protocolVersion string")
@@ -215,8 +283,9 @@ func fetchClassic(ctx context.Context, sess session, offered string, lim surface
 	raw := &surfacelock.RawSurface{
 		Offered:      offered,
 		Era:          era,
-		Instructions: ir.Instructions,
-		ServerInfo:   ir.ServerInfo,
+		Flow:         FlowClassic,
+		Instructions: obj["instructions"],
+		ServerInfo:   obj["serverInfo"],
 	}
 	if err := fetchPages(ctx, sess, raw, lim, func(cursor string) any {
 		var params any = map[string]any{}

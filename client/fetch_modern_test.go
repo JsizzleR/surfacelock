@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -334,5 +335,177 @@ func TestFetchHTTPClientInjectionOverUnixSocket(t *testing.T) {
 	}
 	if raw.Era != ModernRevision || len(raw.Pages) != 2 {
 		t.Errorf("era=%q pages=%d, want %q/2", raw.Era, len(raw.Pages), ModernRevision)
+	}
+}
+
+// After a version-confirmed server/discover — the commit point — a tools/list
+// failure must be TERMINAL: no classic fallback (a second enumeration would let
+// a hostile hybrid serve different bytes over the other flow), and the
+// machine-readable inadmissible class must survive.
+func TestFetchPostCommitFailureIsTerminal(t *testing.T) {
+	var initializes atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in rpcIn
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		w.Header().Set("Content-Type", "application/json")
+		switch in.Method {
+		case "server/discover":
+			rpcResult(t, w, in.ID, map[string]any{"supportedVersions": []string{ModernRevision}})
+		case "initialize":
+			initializes.Add(1)
+			rpcResult(t, w, in.ID, map[string]any{"protocolVersion": "2025-11-25"})
+		case "tools/list":
+			// A cursor loop: same cursor forever.
+			rpcResult(t, w, in.ID, map[string]any{"tools": []map[string]any{}, "nextCursor": "loop"})
+		}
+	}))
+	defer srv.Close()
+
+	_, err := Fetch(context.Background(), Ref{Transport: "http", Target: srv.URL}, surfacelock.DefaultLimits())
+	if err == nil {
+		t.Fatal("a post-commit cursor loop must fail the fetch")
+	}
+	if !errors.Is(err, surfacelock.ErrInadmissible) {
+		t.Errorf("inadmissible class lost: %v", err)
+	}
+	if got := initializes.Load(); got != 0 {
+		t.Errorf("classic fallback ran %d times after the commit point, want 0", got)
+	}
+}
+
+// The classic fallback must run on a FRESH session: a session id handed out
+// during the failed modern attempt must never accompany the fallback's
+// requests (on stdio the analogue is a fresh child, which this leg cannot see;
+// the session-boundary property is the same code path).
+func TestFetchFallbackUsesAFreshSession(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		var in rpcIn
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		w.Header().Set("Content-Type", "application/json")
+		switch in.Method {
+		case "server/discover":
+			w.Header().Set("Mcp-Session-Id", "poisoned")
+			rpcErrorReply(t, w, in.ID, -32600, "Bad Request: Missing session ID")
+		case "initialize":
+			if r.Header.Get("Mcp-Session-Id") != "" {
+				t.Errorf("fallback initialize carried the failed attempt's session id %q", r.Header.Get("Mcp-Session-Id"))
+			}
+			rpcResult(t, w, in.ID, map[string]any{"protocolVersion": "2025-11-25"})
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+		case "tools/list":
+			rpcResult(t, w, in.ID, map[string]any{"tools": []map[string]any{}})
+		}
+	}))
+	defer srv.Close()
+
+	raw, err := Fetch(context.Background(), Ref{Transport: "http", Target: srv.URL}, surfacelock.DefaultLimits())
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if raw.Flow != FlowClassic {
+		t.Errorf("Flow = %q, want %q", raw.Flow, FlowClassic)
+	}
+}
+
+// A pinned Flow must never try the other flow — that is what makes a verify
+// era- and flow-faithful against a server that has been replaced.
+func TestFetchPinnedFlowNeverCrosses(t *testing.T) {
+	var discovers, initializes atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in rpcIn
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		w.Header().Set("Content-Type", "application/json")
+		switch in.Method {
+		case "server/discover":
+			discovers.Add(1)
+			rpcErrorReply(t, w, in.ID, -32601, "method not found")
+		case "initialize":
+			initializes.Add(1)
+			rpcErrorReply(t, w, in.ID, -32600, "nope")
+		}
+	}))
+	defer srv.Close()
+
+	if _, err := Fetch(context.Background(), Ref{Transport: "http", Target: srv.URL, Flow: FlowStateless}, surfacelock.DefaultLimits()); err == nil {
+		t.Fatal("Flow=stateless against a classic-only server must fail")
+	}
+	if initializes.Load() != 0 {
+		t.Errorf("Flow=stateless attempted initialize %d times, want 0", initializes.Load())
+	}
+	if _, err := Fetch(context.Background(), Ref{Transport: "http", Target: srv.URL, Flow: FlowClassic}, surfacelock.DefaultLimits()); err == nil {
+		t.Fatal("Flow=classic against this server must fail")
+	}
+	if discovers.Load() != 1 { // only the first (stateless) fetch's one attempt
+		t.Errorf("discover called %d times, want 1", discovers.Load())
+	}
+}
+
+// A case-variant alias of a consumed result key is a parser differential (the
+// D-346 shape): refuse it in BOTH flows rather than hash one of two values.
+func TestFetchRefusesCaseVariantResultKeys(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in rpcIn
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		w.Header().Set("Content-Type", "application/json")
+		switch in.Method {
+		case "server/discover":
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":{"supportedVersions":["2026-07-28"],"instructions":"I","INSTRUCTIONS":"K"}}`, in.ID)
+		case "initialize":
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-11-25","instructions":"I","Instructions":"K"}}`, in.ID)
+		}
+	}))
+	defer srv.Close()
+
+	_, err := Fetch(context.Background(), Ref{Transport: "http", Target: srv.URL}, surfacelock.DefaultLimits())
+	if err == nil {
+		t.Fatal("case-variant instructions keys must refuse the fetch in both flows")
+	}
+	if !strings.Contains(err.Error(), "case-variant") {
+		t.Errorf("error does not name the refusal: %v", err)
+	}
+}
+
+// The recorded flow must survive the whole artifact round trip: fetch → Admit →
+// EntryFromSurface → Render → Parse.
+func TestFlowIsRecordedThroughTheLockfile(t *testing.T) {
+	var discovers atomic.Int64
+	srv := httptest.NewServer(modernOnlyHandler(t, &discovers))
+	defer srv.Close()
+
+	raw, err := Fetch(context.Background(), Ref{Transport: "http", Target: srv.URL}, surfacelock.DefaultLimits())
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if raw.Flow != FlowStateless {
+		t.Fatalf("Flow = %q, want %q", raw.Flow, FlowStateless)
+	}
+	s, err := surfacelock.Admit(*raw, surfacelock.DefaultLimits())
+	if err != nil {
+		t.Fatalf("Admit: %v", err)
+	}
+	entry, err := surfacelock.EntryFromSurface("http", srv.URL, nil, s)
+	if err != nil {
+		t.Fatalf("EntryFromSurface: %v", err)
+	}
+	if entry.Protocol.Flow != FlowStateless {
+		t.Fatalf("entry flow = %q", entry.Protocol.Flow)
+	}
+	lf := surfacelock.NewLockfile()
+	lf.Servers["m"] = entry
+	b, err := lf.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	parsed, err := surfacelock.Parse(b)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if parsed.Servers["m"].Protocol.Flow != FlowStateless {
+		t.Errorf("round-tripped flow = %q, want %q", parsed.Servers["m"].Protocol.Flow, FlowStateless)
 	}
 }

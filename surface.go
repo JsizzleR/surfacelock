@@ -67,6 +67,7 @@ type Tool struct {
 type Surface struct {
 	Offered      string
 	Era          string
+	Flow         string  // fetch flow the bytes were taken over ("stateless" | "classic"); "" when unknown (e.g. re-hashed from a stored entry that predates the field)
 	Instructions *string // nil = absent
 	HInstr       string  // AbsentSentinel when Instructions is nil
 	Tools        []Tool  // sorted ascending by byte-wise order of Name
@@ -78,6 +79,7 @@ type Surface struct {
 type RawSurface struct {
 	Offered      string
 	Era          string
+	Flow         string          // "stateless" | "classic" | "" — set by the fetcher, recorded (never hashed)
 	Instructions json.RawMessage // raw JSON value; nil if the field was absent
 	ServerInfo   json.RawMessage // raw serverInfo value; nil if absent; informational
 	Pages        []json.RawMessage
@@ -101,7 +103,10 @@ func Admit(raw RawSurface, lim Limits) (*Surface, error) {
 	if err := CheckEra(raw.Era); err != nil {
 		return nil, err
 	}
-	s := &Surface{Offered: raw.Offered, Era: raw.Era, HInstr: AbsentSentinel}
+	if raw.Flow != "" && raw.Flow != "stateless" && raw.Flow != "classic" {
+		return nil, inadmissible("unknown fetch flow %.32q", raw.Flow)
+	}
+	s := &Surface{Offered: raw.Offered, Era: raw.Era, Flow: raw.Flow, HInstr: AbsentSentinel}
 
 	if raw.Instructions != nil && !isNull(raw.Instructions) {
 		// Validity is checked on the RAW token: after json.Unmarshal, invalid UTF-8
