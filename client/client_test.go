@@ -125,7 +125,11 @@ func fetchFrom(t *testing.T, f *fakeMCP, lim surfacelock.Limits) (*surfacelock.R
 	t.Cleanup(srv.Close)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
-	return Fetch(ctx, Ref{Transport: "http", Target: srv.URL, Offered: "2026-07-28"}, lim)
+	// A classic offer drives the classic flow directly (SPEC.md §3.4), which is
+	// the pipeline these fixtures were written against (initialize is request id
+	// 1, tools/list id 2). The stateless flow's own legs live in
+	// fetch_modern_test.go; the pagination caps under test here are shared code.
+	return Fetch(ctx, Ref{Transport: "http", Target: srv.URL, Offered: "2025-11-25"}, lim)
 }
 
 const pageOne = `{"tools":[{"name":"alpha","description":"a"}]}`
@@ -137,7 +141,7 @@ func TestHTTPFetchJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if raw.Era != "2025-11-25" || raw.Offered != "2026-07-28" {
+	if raw.Era != "2025-11-25" || raw.Offered != "2025-11-25" {
 		t.Fatalf("era %q offered %q", raw.Era, raw.Offered)
 	}
 	if len(raw.Pages) != 2 {
@@ -152,8 +156,8 @@ func TestHTTPFetchJSON(t *testing.T) {
 	}
 	// SPEC.md §3.1/§9: the client must OFFER the caller's chosen version (reproducible
 	// negotiation) and send notifications/initialized before tools/list.
-	if f.sawOffered != "2026-07-28" {
-		t.Fatalf("offered protocolVersion = %q, want 2026-07-28", f.sawOffered)
+	if f.sawOffered != "2025-11-25" {
+		t.Fatalf("offered protocolVersion = %q, want the fetchFrom offer verbatim", f.sawOffered)
 	}
 	if !f.sawInit {
 		t.Fatal("notifications/initialized was never sent")
@@ -345,6 +349,11 @@ func TestHelperProcess(t *testing.T) {
 			case "silent":
 				// Never answer; the client's deadline must bound this.
 			}
+		default:
+			// Real pre-stateless servers answer an unknown method (e.g. a modern
+			// client's server/discover) with -32601 (spike-measured), which is what
+			// lets the fetcher's classic fallback proceed promptly.
+			fmt.Printf("{\"jsonrpc\":\"2.0\",\"id\":%s,\"error\":{\"code\":-32601,\"message\":\"method not found\"}}\n", req.ID)
 		}
 	}
 }

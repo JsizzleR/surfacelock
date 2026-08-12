@@ -109,8 +109,12 @@ type httpSession struct {
 	pageCap   int
 }
 
-func newHTTPSession(url string, pageCap int) *httpSession {
-	return &httpSession{url: url, client: &http.Client{}, nextID: 1, pageCap: pageCap}
+func newHTTPSession(url string, pageCap int, injected *http.Client) *httpSession {
+	c := injected
+	if c == nil {
+		c = &http.Client{}
+	}
+	return &httpSession{url: url, client: c, nextID: 1, pageCap: pageCap}
 }
 
 func (h *httpSession) post(ctx context.Context, body []byte) (*http.Response, error) {

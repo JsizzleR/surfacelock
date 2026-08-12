@@ -81,20 +81,23 @@ keys); they identify the *entry*, never the server — the hashes do that.
 - `args` (array of strings, required, may be empty): for `stdio`, argv[1..]; for `http`,
   MUST be empty. Environment variables are deliberately NOT recorded: secrets never
   transit the lockfile. A verifier runs stdio commands with the caller's environment.
-- `protocol.offered` (string, required): the `protocolVersion` the client offered at
-  `initialize` when this entry was written. Verifiers MUST re-offer the same value, so
-  negotiation is reproducible; a different offer could negotiate a different era and
-  manufacture false drift.
-- `protocol.era` (string, required): the `protocolVersion` the server returned. This is
-  the era tag; it is bound into `surface_hash` (§5).
+- `protocol.offered` (string, required): the `protocolVersion` the client offered when
+  this entry was written. Verifiers MUST re-offer the same value, so negotiation is
+  reproducible; a different offer could negotiate a different era, or select a different
+  fetch flow (§3.4), and manufacture false drift.
+- `protocol.era` (string, required): the `protocolVersion` the fetch was served under.
+  This is the era tag; it is bound into `surface_hash` (§5). Classic flow: the
+  `initialize` result's `protocolVersion`. Stateless flow (§3.4): the offered revision
+  itself, which `server/discover`'s `supportedVersions` MUST have confirmed.
 - `server_info` (object, optional, informational): `name` and `version` from the
   `initialize` result's `serverInfo`, stored verbatim. NOT part of the surface, NOT
   hashed, never a drift verdict — a server's self-report is not evidence. Writers MUST
   omit `name` or `version` when the value is not a string, is not valid UTF-8, or exceeds
   256 bytes.
-- `instructions` (string, optional): the `initialize` result's `instructions` field,
-  verbatim. Present iff the server sent a string value. Server instructions are prompt
-  text — the same threat class as tool descriptions — so they are part of the surface.
+- `instructions` (string, optional): the `instructions` field of the `initialize` (or,
+  stateless flow, `server/discover`) result, verbatim. Present iff the server sent a
+  string value. Server instructions are prompt text — the same threat class as tool
+  descriptions — so they are part of the surface.
 - `h_instructions` (string, required): hash of the canonical form of the `instructions`
   JSON string, or the absent sentinel. When `instructions` is present, this MUST equal
   the recomputed hash (§7).
@@ -129,6 +132,28 @@ keys); they identify the *entry*, never the server — the hashes do that.
 - **Prompts and resources.** MCP servers also serve prompt and resource surfaces; they
   are the same threat class and a future `lockfile_version` may add sections for them.
   Version 1 pins tools and instructions only.
+
+### 3.4 Fetch flows — classic and stateless
+
+The protocol's 2026-07-28 revision (SEP-2575) removed the `initialize` handshake:
+every request is self-describing, carrying the reserved `_meta` envelope keys
+(`io.modelcontextprotocol/protocolVersion`, `…/clientInfo`, `…/clientCapabilities`),
+and capabilities come from `server/discover`. Fielded server populations are disjoint
+in which face they expose (measured: pre-revision SDK servers answer classic only and
+refuse a cold `server/discover`; a stateless-only endpoint refuses `initialize`
+outright), so a fetcher MUST select its flow from the offered revision:
+
+- **Offered `2026-07-28` or later**: try the stateless flow — `server/discover`
+  (whose result supplies `instructions` and `server_info`, and whose
+  `supportedVersions` MUST include the offered revision), then fully-paginated
+  `tools/list` with the full `_meta` envelope on every request, no handshake. If the
+  discover attempt fails for any reason, fall back to one classic attempt on a fresh
+  session state; if both fail, report both refusals.
+- **Offered pre-revision values**: the classic flow only — `initialize` (offering
+  `protocol.offered`), `notifications/initialized`, then fully-paginated `tools/list`.
+
+Because verifiers re-offer `protocol.offered`, an entry locked over either flow is
+re-verified over the same flow selection, and the era stays reproducible.
 
 ## 4. Canonical rendering
 
@@ -301,8 +326,8 @@ implementations MUST report the most severe and SHOULD report every class that a
 
 ## 9. Verbs and exit codes
 
-All four verbs share one fetch discipline: fresh session (`initialize`, offering
-`protocol.offered`; for stdio, a fresh process), `notifications/initialized`, then
+All four verbs share one fetch discipline: a fresh session (for stdio, a fresh
+process) driven through the flow §3.4 selects from the offered revision, then
 fully-paginated `tools/list`, applying §6 throughout. Verification is **in-band by
 design**: the hash that matters is over what this connection was served. The CLI is the
 CI face of the same code path; a client-path proxy that verifies the session actually
