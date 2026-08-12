@@ -122,7 +122,8 @@ func TestAdmitHostileInput(t *testing.T) {
 		{"non-object inputSchema", RawSurface{Era: "e", Pages: pagesOf(`{"name":"a","inputSchema":[1]}`)}, lim, "inputSchema is not an object"},
 		{"null inputSchema treated absent", RawSurface{Era: "e", Pages: pagesOf(`{"name":"a","inputSchema":null}`)}, lim, ""},
 		{"page not canonicalizable", RawSurface{Era: "e", Pages: []json.RawMessage{json.RawMessage(`{"tools":`)}}, lim, "not canonicalizable"},
-		{"page tools not an array", RawSurface{Era: "e", Pages: []json.RawMessage{json.RawMessage(`{"tools":"nope"}`)}}, lim, "does not parse"},
+		{"page tools not an array", RawSurface{Era: "e", Pages: []json.RawMessage{json.RawMessage(`{"tools":"nope"}`)}}, lim, "tools is not an array"},
+		{"page not an object", RawSurface{Era: "e", Pages: []json.RawMessage{json.RawMessage(`["not","an","object"]`)}}, lim, "does not parse"},
 		{"page byte cap", RawSurface{Era: "e", Pages: []json.RawMessage{[]byte(`{"tools":[{"name":"a","description":"` + strings.Repeat("d", 200) + `"}]}`)}},
 			withLim(lim, func(l *Limits) { l.MaxPageBytes = 100 }), "exceeds 100 bytes"},
 		{"too many pages", RawSurface{Era: "e", Pages: []json.RawMessage{
@@ -131,6 +132,14 @@ func TestAdmitHostileInput(t *testing.T) {
 		{"duplicate tools key in page envelope", RawSurface{Era: "e", Pages: []json.RawMessage{
 			[]byte(`{"tools":[{"name":"a"}],"tools":[{"name":"b"}]}`),
 		}}, lim, "not canonicalizable"},
+		// Case-variant "tools" key: distinct to JCS (passes canonicalization), but Go's
+		// struct decode matches case-insensitively and last-wins. Must be refused.
+		{"case-variant tools key", RawSurface{Era: "e", Pages: []json.RawMessage{
+			[]byte(`{"tools":[{"name":"safe"}],"TOOLS":[{"name":"hostile"}]}`),
+		}}, lim, "case-variant of the \"tools\" key"},
+		{"tools value not an array", RawSurface{Era: "e", Pages: []json.RawMessage{
+			[]byte(`{"tools":{"name":"a"}}`),
+		}}, lim, "tools is not an array"},
 		// Duplicate member names inside a tool object: last-key-wins decoding would
 		// show one value to the hash and another to a consumer; RFC 8785 refuses the
 		// object and admission must surface that as inadmissibility (measured:

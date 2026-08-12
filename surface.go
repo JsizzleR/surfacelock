@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -82,13 +83,6 @@ type RawSurface struct {
 	Pages        []json.RawMessage
 }
 
-type toolsListPage struct {
-	Tools      []json.RawMessage `json:"tools"`
-	NextCursor json.RawMessage   `json:"nextCursor"`
-}
-
-// Admit validates a raw fetch result against SPEC.md §6 and returns the admitted
-// surface. Every returned error wraps ErrInadmissible unless it is a programmer error.
 // CheckEra validates a negotiated protocol revision against SPEC.md §6 name rules
 // (non-empty, ≤64 bytes, valid UTF-8, no control characters). It is exported so the
 // fetcher can refuse a hostile era BEFORE using it as an HTTP header value or as the
@@ -101,6 +95,8 @@ func CheckEra(era string) error {
 	return nil
 }
 
+// Admit validates a raw fetch result against SPEC.md §6 and returns the admitted
+// surface. Every returned error wraps ErrInadmissible unless it is a programmer error.
 func Admit(raw RawSurface, lim Limits) (*Surface, error) {
 	if err := CheckEra(raw.Era); err != nil {
 		return nil, err
@@ -150,16 +146,33 @@ func Admit(raw RawSurface, lim Limits) (*Surface, error) {
 			return nil, inadmissible("page %d is not valid UTF-8", pi+1)
 		}
 		// Canonicalizing the whole page catches duplicate top-level keys (e.g. a
-		// second "tools" member that a last-key-wins decoder would silently prefer)
-		// — a page-envelope aliasing attack the per-tool checks cannot see.
+		// second byte-identical "tools" member that a last-key-wins decoder would
+		// silently prefer) — a page-envelope aliasing attack the per-tool checks
+		// cannot see.
 		if _, err := Canonicalize(page); err != nil {
 			return nil, inadmissible("page %d is not canonicalizable: %v", pi+1, err)
 		}
-		var p toolsListPage
-		if err := json.Unmarshal(page, &p); err != nil {
+		// Decode into a map (exact, case-sensitive keys), NOT a struct: json.Unmarshal
+		// matches struct fields case-INsensitively, so `{"tools":[safe],"TOOLS":[bad]}`
+		// — distinct keys to JCS, so it passes canonicalization — would last-key-win
+		// into a struct's Tools field. Reject any case-variant of "tools" and read the
+		// exact key.
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(page, &obj); err != nil {
 			return nil, inadmissible("page %d does not parse: %v", pi+1, err)
 		}
-		for _, rawTool := range p.Tools {
+		for k := range obj {
+			if k != "tools" && strings.EqualFold(k, "tools") {
+				return nil, inadmissible("page %d has a case-variant of the \"tools\" key: %q", pi+1, k)
+			}
+		}
+		var pageTools []json.RawMessage
+		if raw, ok := obj["tools"]; ok && !isNull(raw) {
+			if err := json.Unmarshal(raw, &pageTools); err != nil {
+				return nil, inadmissible("page %d: tools is not an array", pi+1)
+			}
+		}
+		for _, rawTool := range pageTools {
 			// Count check first: bound CPU before decoding/hashing the (N+1)th tool.
 			if len(s.Tools) >= lim.MaxTools {
 				return nil, inadmissible("more than %d tools", lim.MaxTools)
