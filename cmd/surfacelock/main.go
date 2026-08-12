@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/JsizzleR/surfacelock"
 	"github.com/JsizzleR/surfacelock/client"
@@ -115,8 +116,25 @@ type cli struct {
 	argv           []string
 }
 
+// errorf writes a diagnostic to stderr with all control characters neutralized.
+// Error strings carry server-controlled bytes (rpc error messages, HTTP body
+// snippets, era strings), and this output lands in terminals and CI logs — a hostile
+// server must not be able to smuggle ANSI escapes or cursor control through them. This
+// is the blanket boundary defense; call sites also use %q on individual untrusted
+// values, but neither alone is sufficient for every future error path.
 func (c *cli) errorf(format string, args ...any) {
-	fmt.Fprintf(c.stderr, "surfacelock: "+format+"\n", args...)
+	fmt.Fprintln(c.stderr, "surfacelock: "+safe(fmt.Sprintf(format, args...)))
+}
+
+// safe renders a string with control characters (C0, DEL, and other Unicode control
+// runes) escaped, so untrusted content cannot rewrite the terminal.
+func safe(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return '�'
+		}
+		return r
+	}, s)
 }
 
 // exitFor maps an error to the SPEC.md §9 exit code contract.
@@ -172,7 +190,17 @@ func (c *cli) readLockfile() (*surfacelock.Lockfile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", surfacelock.ErrLockfile, err)
 	}
-	return surfacelock.Parse(b)
+	lf, err := surfacelock.Parse(b)
+	if err != nil {
+		return nil, err
+	}
+	// SPEC.md §7: a reader MUST reject a self-inconsistent lockfile. Validate the
+	// whole file at read time so every verb refuses a corrupt/tampered entry — not
+	// only the one it happens to touch — and lock/pin never re-render corruption.
+	if err := lf.Validate(); err != nil {
+		return nil, err
+	}
+	return lf, nil
 }
 
 func (c *cli) writeLockfile(lf *surfacelock.Lockfile) error {
@@ -222,7 +250,7 @@ func (c *cli) lock() int {
 		return exitLockfile
 	}
 	fmt.Fprintf(c.stdout, "locked %s: %d tools, era %s, %s\n",
-		name, len(entry.Tools), entry.Protocol.Era, entry.SurfaceHash)
+		safe(name), len(entry.Tools), safe(entry.Protocol.Era), entry.SurfaceHash)
 	return exitOK
 }
 
@@ -255,7 +283,7 @@ func (c *cli) pin() int {
 			state = "repinned"
 		}
 		fmt.Fprintf(c.stdout, "%s %s: %d tools, era %s, %s\n",
-			state, name, len(entry.Tools), entry.Protocol.Era, entry.SurfaceHash)
+			state, safe(name), len(entry.Tools), safe(entry.Protocol.Era), entry.SurfaceHash)
 	}
 	if err := c.writeLockfile(lf); err != nil {
 		c.errorf("write %s: %v", c.file, err)
@@ -297,42 +325,76 @@ func (c *cli) compare(verbose bool) int {
 	if code != exitOK {
 		return code
 	}
+	// (Entries were already self-consistency-checked by readLockfile → Validate.)
+	// Process every entry; a per-entry failure must NOT early-return, or an entry
+	// that already drifted would have its verdict masked by a later entry's transport
+	// error. worst tracks the most serious outcome by the precedence in worse().
 	worst := exitOK
+	drifted := false
 	for _, name := range names {
 		entry := lf.Servers[name]
-		// A lockfile whose hashes disagree with its own content must not produce a
-		// drift verdict: that is corruption, not change (SPEC.md §7).
-		if err := entry.Validate(); err != nil {
-			c.errorf("%s: %v", name, err)
-			return exitLockfile
-		}
 		surface, err := c.fetchSurface(refFromEntry(entry, c.env))
 		if err != nil {
 			c.errorf("%s: %v", name, err)
-			return exitFor(err)
+			worst = worse(worst, exitFor(err))
+			continue
 		}
 		d, err := surfacelock.Diff(entry, surface)
 		if err != nil {
 			c.errorf("%s: %v", name, err)
-			return exitTransport
+			worst = worse(worst, exitTransport)
+			continue
 		}
 		if d.Empty() {
 			if verbose {
-				fmt.Fprintf(c.stdout, "%s: no drift (%d tools, era %s)\n", name, len(entry.Tools), entry.Protocol.Era)
+				fmt.Fprintf(c.stdout, "%s: no drift (%d tools, era %s)\n", safe(name), len(entry.Tools), safe(entry.Protocol.Era))
 			}
 			continue
 		}
-		worst = exitDrift
+		drifted = true
+		worst = worse(worst, exitDrift)
 		c.reportDrift(name, d, verbose)
 	}
 	if worst == exitOK && !verbose {
 		fmt.Fprintf(c.stdout, "ok: %d server(s), no drift\n", len(names))
 	}
+	// A hard failure (3/4/5) means the run could not complete, so it must not report
+	// "just drift" (exit 1) — but the drift that WAS found is still on stdout.
+	if drifted && worst != exitDrift {
+		fmt.Fprintf(c.stdout, "note: drift was found, but exit %d reflects a more serious failure above\n", worst)
+	}
 	return worst
 }
 
+// worse returns the more serious of two exit codes for a multi-entry run. A run that
+// could not complete (transport/lockfile/inadmissible) outranks a completed drift
+// verdict, which outranks success; among hard failures, lockfile corruption and
+// inadmissible surfaces (definite, actionable) outrank a transient transport error.
+func worse(a, b int) int {
+	rank := func(code int) int {
+		switch code {
+		case exitOK:
+			return 0
+		case exitDrift:
+			return 1
+		case exitTransport:
+			return 2
+		case exitInadmissible:
+			return 3
+		case exitLockfile:
+			return 4
+		default:
+			return 5
+		}
+	}
+	if rank(b) > rank(a) {
+		return b
+	}
+	return a
+}
+
 func (c *cli) reportDrift(name string, d *surfacelock.SurfaceDiff, verbose bool) {
-	fmt.Fprintf(c.stdout, "DRIFT %s (severity: %s)\n", name, d.Severity())
+	fmt.Fprintf(c.stdout, "DRIFT %s (severity: %s)\n", safe(name), d.Severity())
 	if d.InstructionsChanged {
 		fmt.Fprintf(c.stdout, "  [description] server instructions changed\n")
 	}

@@ -81,6 +81,13 @@ func Fetch(ctx context.Context, ref Ref, lim surfacelock.Limits) (*surfacelock.R
 		// is no surface (SPEC.md §6), and that is a protocol failure, not drift.
 		return nil, fmt.Errorf("initialize: result carries no protocolVersion string")
 	}
+	// Validate the era BEFORE it is used as the MCP-Protocol-Version HTTP header
+	// value: a control-char era is an inadmissible surface (exit 5), and refusing it
+	// here keeps it from surfacing later as an opaque transport error when net/http
+	// rejects the header.
+	if err := surfacelock.CheckEra(era); err != nil {
+		return nil, err
+	}
 	if h, ok := sess.(*httpSession); ok {
 		h.proto = era
 	}
@@ -102,14 +109,16 @@ func Fetch(ctx context.Context, ref Ref, lim surfacelock.Limits) (*surfacelock.R
 		if cursor != "" {
 			params = map[string]any{"cursor": cursor}
 		}
+		// Refuse BEFORE fetching page MaxPages+1: don't spend a round-trip and hold
+		// another MaxPageBytes just to reject a server that paginates without end.
+		if len(raw.Pages) >= lim.MaxPages {
+			return nil, fmt.Errorf("tools/list: %w: more than %d pages", surfacelock.ErrInadmissible, lim.MaxPages)
+		}
 		page, err := sess.call(ctx, "tools/list", params)
 		if err != nil {
 			return nil, fmt.Errorf("tools/list: %w", err)
 		}
 		raw.Pages = append(raw.Pages, page)
-		if len(raw.Pages) > lim.MaxPages {
-			return nil, fmt.Errorf("tools/list: %w: more than %d pages", surfacelock.ErrInadmissible, lim.MaxPages)
-		}
 		var p toolsListPage
 		if err := json.Unmarshal(page, &p); err != nil {
 			return nil, fmt.Errorf("tools/list: %w: page does not parse: %v", surfacelock.ErrInadmissible, err)

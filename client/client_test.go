@@ -27,6 +27,8 @@ type fakeMCP struct {
 	rawBody      string
 	contentType  string
 	sawProtoHdr  string // MCP-Protocol-Version seen on tools/list
+	sawOffered   string // protocolVersion the client offered at initialize
+	sawInit      bool   // notifications/initialized received
 }
 
 func (f *fakeMCP) handler() http.HandlerFunc {
@@ -39,7 +41,8 @@ func (f *fakeMCP) handler() http.HandlerFunc {
 			ID     json.RawMessage `json:"id"`
 			Method string          `json:"method"`
 			Params struct {
-				Cursor string `json:"cursor"`
+				Cursor          string `json:"cursor"`
+				ProtocolVersion string `json:"protocolVersion"`
 			} `json:"params"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -47,12 +50,16 @@ func (f *fakeMCP) handler() http.HandlerFunc {
 			return
 		}
 		if req.ID == nil { // notification
+			if req.Method == "notifications/initialized" {
+				f.sawInit = true
+			}
 			w.WriteHeader(http.StatusAccepted)
 			return
 		}
 		var result any
 		switch req.Method {
 		case "initialize":
+			f.sawOffered = req.Params.ProtocolVersion
 			w.Header().Set("Mcp-Session-Id", "sess-1")
 			res := map[string]any{"serverInfo": map[string]any{"name": "fake", "version": "0"}}
 			if f.protoVersion != nil {
@@ -143,6 +150,14 @@ func TestHTTPFetchJSON(t *testing.T) {
 	if f.sawProtoHdr != "2025-11-25" {
 		t.Fatalf("MCP-Protocol-Version header = %q", f.sawProtoHdr)
 	}
+	// SPEC.md §3.1/§9: the client must OFFER the caller's chosen version (reproducible
+	// negotiation) and send notifications/initialized before tools/list.
+	if f.sawOffered != "2026-07-28" {
+		t.Fatalf("offered protocolVersion = %q, want 2026-07-28", f.sawOffered)
+	}
+	if !f.sawInit {
+		t.Fatal("notifications/initialized was never sent")
+	}
 	s, err := surfacelock.Admit(*raw, surfacelock.DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
@@ -160,6 +175,61 @@ func TestHTTPFetchSSE(t *testing.T) {
 	}
 	if len(raw.Pages) != 1 {
 		t.Fatalf("pages = %d", len(raw.Pages))
+	}
+	// The content the SSE path yielded must match what admission sees on the JSON
+	// path — not merely arrive as one page.
+	s, err := surfacelock.Admit(*raw, surfacelock.DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Tools) != 1 || s.Tools[0].Name != "alpha" {
+		t.Fatalf("SSE tools: %+v", s.Tools)
+	}
+}
+
+// The SSE per-event byte cap must fire and be classified inadmissible (exit 5), not
+// leak an unbounded stream or misreport as "no response".
+func TestHTTPSSEEventCap(t *testing.T) {
+	bigTool := `{"tools":[{"name":"a","description":"` + strings.Repeat("x", 4000) + `"}]}`
+	f := &fakeMCP{t: t, sse: true, protoVersion: "2025-11-25", pages: []string{bigTool}}
+	lim := surfacelock.DefaultLimits()
+	lim.MaxPageBytes = 512
+	_, err := fetchFrom(t, f, lim)
+	if err == nil || !errors.Is(err, surfacelock.ErrInadmissible) {
+		t.Fatalf("oversized SSE event not refused as inadmissible: %v", err)
+	}
+	if !strings.Contains(err.Error(), "sse event exceeds") {
+		t.Fatalf("wrong SSE cap error: %v", err)
+	}
+}
+
+// The client must re-offer the caller's chosen protocolVersion verbatim, so a
+// verifier reproduces the era the lockfile recorded (SPEC.md §3.1).
+func TestHTTPOffersRequestedVersion(t *testing.T) {
+	f := &fakeMCP{t: t, protoVersion: "2025-11-25", pages: []string{pageOne}}
+	srv := httptest.NewServer(f.handler())
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	if _, err := Fetch(ctx, Ref{Transport: "http", Target: srv.URL, Offered: "2024-11-05"}, surfacelock.DefaultLimits()); err != nil {
+		t.Fatal(err)
+	}
+	if f.sawOffered != "2024-11-05" {
+		t.Fatalf("offered %q, want the caller's 2024-11-05", f.sawOffered)
+	}
+}
+
+// A control-char era must be refused as inadmissible (exit 5) BEFORE it is used as an
+// HTTP header value — not surface later as an opaque transport error.
+func TestHTTPControlCharEraRefused(t *testing.T) {
+	f := &fakeMCP{t: t, protoVersion: "202511", pages: []string{pageOne}}
+	srv := httptest.NewServer(f.handler())
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	_, err := Fetch(ctx, Ref{Transport: "http", Target: srv.URL, Offered: "2026-07-28"}, surfacelock.DefaultLimits())
+	if err == nil || !errors.Is(err, surfacelock.ErrInadmissible) {
+		t.Fatalf("control-char era not refused as inadmissible: %v", err)
 	}
 }
 

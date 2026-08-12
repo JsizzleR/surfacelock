@@ -245,6 +245,87 @@ func TestCLIExitCodes(t *testing.T) {
 	})
 }
 
+// The realistic CI scenario: a server that was lockable BECOMES inadmissible.
+// verify must exit 5 (no surface to judge), never 1 (drift) or 3 (transport) — the
+// §9 confusion rule, on the verb it exists for.
+func TestVerifyExitDiscrimination(t *testing.T) {
+	srv := &mutableMCP{}
+	srv.set(toolV1, "")
+	ts := httptest.NewServer(http.HandlerFunc(srv.handler))
+	t.Cleanup(ts.Close)
+	lock := filepath.Join(t.TempDir(), "tools.lock")
+	if code, _, _ := runCLI(t, "lock", "--file", lock, "--name", "m", "--url", ts.URL); code != exitOK {
+		t.Fatal("lock failed")
+	}
+	// Server now serves a duplicate tool name — an inadmissible surface.
+	srv.mu.Lock()
+	srv.dup = true
+	srv.mu.Unlock()
+	code, _, errOut := runCLI(t, "verify", "--file", lock)
+	if code != exitInadmissible {
+		t.Fatalf("verify against inadmissible surface: exit %d, want %d", code, exitInadmissible)
+	}
+	if !strings.Contains(errOut, "duplicate tool name") {
+		t.Fatalf("stderr %q", errOut)
+	}
+}
+
+// diff on a clean surface exits 0 (the diff(1) convention's zero side); pin on an
+// unchanged surface reports "unchanged" and leaves the file byte-identical.
+func TestDiffCleanAndPinUnchanged(t *testing.T) {
+	srv := &mutableMCP{}
+	srv.set(toolV1, "steady")
+	ts := httptest.NewServer(http.HandlerFunc(srv.handler))
+	t.Cleanup(ts.Close)
+	lock := filepath.Join(t.TempDir(), "tools.lock")
+	if code, _, _ := runCLI(t, "lock", "--file", lock, "--name", "m", "--url", ts.URL); code != exitOK {
+		t.Fatal("lock failed")
+	}
+	if code, out, _ := runCLI(t, "diff", "--file", lock); code != exitOK || !strings.Contains(out, "no drift") {
+		t.Fatalf("diff clean: exit %d out %q", code, out)
+	}
+	before, err := os.ReadFile(lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, out, _ := runCLI(t, "pin", "--file", lock)
+	if code != exitOK || !strings.Contains(out, "unchanged m") {
+		t.Fatalf("pin unchanged: exit %d out %q", code, out)
+	}
+	after, err := os.ReadFile(lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("pin of an unchanged surface rewrote the file")
+	}
+}
+
+// Terminal-escape defense: a hostile rpc error message must not reach stderr with its
+// control bytes intact (the F1 finding). Drive it through the real CLI error path.
+func TestErrorOutputNeutralizesControlBytes(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		if req.ID == nil {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		// A JSON-RPC error whose message carries an ANSI escape sequence.
+		fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"error":{"code":-1,"message":"boom\u001b[31mRED\u001b[0m"}}`, req.ID)
+	}))
+	t.Cleanup(ts.Close)
+	lock := filepath.Join(t.TempDir(), "tools.lock")
+	_, _, errOut := runCLI(t, "lock", "--file", lock, "--name", "m", "--url", ts.URL)
+	if strings.ContainsRune(errOut, '\x1b') {
+		t.Fatalf("raw ESC byte reached stderr: %q", errOut)
+	}
+}
+
 func TestCLIDefaultNameFromHost(t *testing.T) {
 	srv := &mutableMCP{}
 	srv.set(toolV1, "")

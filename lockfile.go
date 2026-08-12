@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"unicode/utf8"
 )
 
 // ErrLockfile marks a lockfile that is missing, unparseable, invalid, or
@@ -124,6 +125,13 @@ func validHash(h string, absentOK bool) bool {
 // silent forks of the format. Parse does NOT verify hash self-consistency — that is
 // Validate, which costs a canonicalization pass per tool.
 func Parse(b []byte) (*Lockfile, error) {
+	// SPEC.md §3: the artifact is UTF-8. Enforce it on the raw bytes — JSON decoding
+	// would silently replace invalid sequences with U+FFFD inside RawMessage-held
+	// tool objects, and a later re-render would launder the corruption into a fresh
+	// canonical file.
+	if !utf8.Valid(b) {
+		return nil, badLockfile("file is not valid UTF-8")
+	}
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	var lf Lockfile
@@ -169,6 +177,15 @@ func (e *ServerLock) validateShape() error {
 	if e.Protocol.Offered == "" || e.Protocol.Era == "" {
 		return errors.New("missing protocol.offered or protocol.era")
 	}
+	// The era is bound into the rollup and printed to the terminal; a hand-crafted
+	// lockfile must not smuggle control characters through the read path (the fetch
+	// path validates it via CheckEra).
+	if err := validName(e.Protocol.Era, eraCapBytes); err != nil {
+		return fmt.Errorf("protocol.era %v", err)
+	}
+	if err := validName(e.Protocol.Offered, eraCapBytes); err != nil {
+		return fmt.Errorf("protocol.offered %v", err)
+	}
 	if !validHash(e.HInstr, true) {
 		return fmt.Errorf("bad h_instructions %q", e.HInstr)
 	}
@@ -183,7 +200,7 @@ func (e *ServerLock) validateShape() error {
 	}
 	prev := ""
 	for i, t := range e.Tools {
-		if err := validName(t.Name, DefaultLimits().MaxNameBytes); err != nil {
+		if err := validName(t.Name, nameCapBytes); err != nil {
 			return fmt.Errorf("tool %d: name %v", i, err)
 		}
 		if i > 0 && t.Name <= prev {
@@ -195,6 +212,19 @@ func (e *ServerLock) validateShape() error {
 		}
 		if len(t.Tool) == 0 {
 			return fmt.Errorf("tool %q: missing tool object", t.Name)
+		}
+	}
+	return nil
+}
+
+// Validate checks the self-consistency of every entry (SPEC.md §7). A reader MUST
+// reject a self-inconsistent lockfile, so every verb that reads one calls this before
+// trusting it — otherwise lock/pin could re-render a corrupt sibling entry and verify
+// could pass a clean entry while a tampered one sits beside it.
+func (lf *Lockfile) Validate() error {
+	for name, e := range lf.Servers {
+		if err := e.Validate(); err != nil {
+			return badLockfile("server %q: %v", name, err)
 		}
 	}
 	return nil
@@ -220,7 +250,10 @@ func (e *ServerLock) Validate() error {
 	}
 	entries := make([]Tool, 0, len(e.Tools))
 	for _, t := range e.Tools {
-		got, err := admitTool(t.Tool, DefaultLimits())
+		// hashTool, NOT admitTool: self-consistency is about the stored hashes
+		// matching the stored content, never about size caps. A tool locked under a
+		// larger MaxToolBytes must not be condemned as corrupt here (SPEC.md §7).
+		got, err := hashTool(t.Tool)
 		if err != nil {
 			return badLockfile("tool %q: stored object: %v", t.Name, err)
 		}

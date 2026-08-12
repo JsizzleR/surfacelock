@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/JsizzleR/surfacelock"
@@ -64,7 +65,7 @@ func resultFromMessage(raw []byte, id int64, method string) (json.RawMessage, er
 		return nil, fmt.Errorf("%s: response id mismatch", method)
 	}
 	if env.Error != nil {
-		return nil, fmt.Errorf("%s: rpc error %d: %s", method, env.Error.Code, env.Error.Message)
+		return nil, fmt.Errorf("%s: rpc error %d: %q", method, env.Error.Code, env.Error.Message)
 	}
 	return env.Result, nil
 }
@@ -146,7 +147,7 @@ func (h *httpSession) call(ctx context.Context, method string, params any) (json
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
-		return nil, fmt.Errorf("%s: HTTP %d: %s", method, resp.StatusCode, snippet)
+		return nil, fmt.Errorf("%s: HTTP %d: %q", method, resp.StatusCode, snippet)
 	}
 	ct := resp.Header.Get("Content-Type")
 	switch {
@@ -184,7 +185,7 @@ func (h *httpSession) readSSE(r io.Reader, id int64, method string) (json.RawMes
 			return nil, false, nil // notification or other id; skip
 		}
 		if env.Error != nil {
-			return nil, true, fmt.Errorf("%s: rpc error %d: %s", method, env.Error.Code, env.Error.Message)
+			return nil, true, fmt.Errorf("%s: rpc error %d: %q", method, env.Error.Code, env.Error.Message)
 		}
 		return env.Result, true, nil
 	}
@@ -257,6 +258,8 @@ type stdioSession struct {
 	stdin  io.WriteCloser
 	msgs   chan envelope
 	rdErr  chan error
+	done   chan struct{} // closed by close(); frees a reader parked on a full msgs
+	closed sync.Once
 	nextID int64
 }
 
@@ -276,7 +279,8 @@ func newStdioSession(argv, extraEnv []string, lineCap int) (*stdioSession, error
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	s := &stdioSession{cmd: cmd, stdin: stdin, msgs: make(chan envelope, 64), rdErr: make(chan error, 1), nextID: 1}
+	s := &stdioSession{cmd: cmd, stdin: stdin, msgs: make(chan envelope, 64),
+		rdErr: make(chan error, 1), done: make(chan struct{}), nextID: 1}
 	go func() {
 		sc := bufio.NewScanner(stdout)
 		sc.Buffer(make([]byte, 64*1024), lineCap)
@@ -289,7 +293,15 @@ func newStdioSession(argv, extraEnv []string, lineCap int) (*stdioSession, error
 			if err := json.Unmarshal(line, &env); err != nil {
 				continue
 			}
-			s.msgs <- env
+			// Select on done so a reader parked here (consumer stopped draining
+			// after ctx cancellation or after the final page) is freed by close()
+			// instead of leaking — SIGKILL unblocks a pipe read, never a channel
+			// send. Matters for a long-lived importer, not the short-lived CLI.
+			select {
+			case s.msgs <- env:
+			case <-s.done:
+				return
+			}
 		}
 		err := sc.Err()
 		if err == nil {
@@ -337,7 +349,7 @@ func (s *stdioSession) call(ctx context.Context, method string, params any) (jso
 				continue // notification or unrelated message
 			}
 			if env.Error != nil {
-				return nil, fmt.Errorf("%s: rpc error %d: %s", method, env.Error.Code, env.Error.Message)
+				return nil, fmt.Errorf("%s: rpc error %d: %q", method, env.Error.Code, env.Error.Message)
 			}
 			return env.Result, nil
 		case <-ctx.Done():
@@ -355,10 +367,15 @@ func (s *stdioSession) notify(ctx context.Context, method string, params any) er
 }
 
 func (s *stdioSession) close() {
-	s.stdin.Close()
-	if s.cmd.Process != nil {
-		// Kill the whole process group: npx/uvx wrap the real server in child processes.
-		syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
-	}
-	s.cmd.Wait()
+	// Idempotent: a second close() must not signal a REUSED process group after Wait
+	// has reaped the pid.
+	s.closed.Do(func() {
+		close(s.done) // free a reader parked on a full msgs channel
+		s.stdin.Close()
+		if s.cmd.Process != nil {
+			// Kill the whole group: npx/uvx wrap the real server in child processes.
+			syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
+		}
+		s.cmd.Wait()
+	})
 }

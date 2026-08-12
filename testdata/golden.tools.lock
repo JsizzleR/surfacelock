@@ -1,0 +1,54 @@
+{
+  "lockfile_version": 1,
+  "servers": {
+    "golden": {
+      "args": [],
+      "h_instructions": "sha256:fa0046315b5732f619ed150f3685abd9ef5e9f5f3e0ee12bc1d3df1765b22834",
+      "instructions": "Use tools carefully.",
+      "protocol": {
+        "era": "2025-11-25",
+        "offered": "2026-07-28"
+      },
+      "server_info": {
+        "name": "golden",
+        "version": "1.0.0"
+      },
+      "surface_hash": "sha256:d0ec5f7d6a9a62800032efdafb75d4398d602b8275a1d966c443d144447990ef",
+      "target": "https://golden.test/mcp",
+      "tools": [
+        {
+          "h_desc": "sha256:13f5e5869e99edf67318f9dd02bed53a5fc74957b0368f7c077aa4d755af7ae7",
+          "h_schema": "sha256:a2c799262a3ce3c19ef5cdd983bf3d12b43ab3c426227091b909dcb7054738c0",
+          "h_tool": "sha256:aa52d14d134d85bdb6df10c62cade3b6d977ef45e3c389955863e15dc32ad4e7",
+          "name": "alpha",
+          "tool": {
+            "description": "First tool. <b>bold</b> & sharp.",
+            "inputSchema": {
+              "type": "object"
+            },
+            "name": "alpha"
+          }
+        },
+        {
+          "h_desc": "sha256:8c0e83e8466d2222e2f030b93c3b2167a0b96627e488a6ac6b14bfaada6644ee",
+          "h_schema": "sha256:df0cd751860cebb7dbf04cb311a379d2ffcef96035486aafc13f2b6d5c610077",
+          "h_tool": "sha256:4dbd67e0500e1fba7e574a7ee979c9082f34728f6c9e0a36af24b33b0e275ce9",
+          "name": "beta",
+          "tool": {
+            "description": "Second tool.",
+            "inputSchema": {
+              "properties": {
+                "x": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "name": "beta"
+          }
+        }
+      ],
+      "transport": "http"
+    }
+  }
+}
