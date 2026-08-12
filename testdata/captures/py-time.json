@@ -1,0 +1,74 @@
+{
+ "id": "py-time",
+ "pass": 1,
+ "kind": "uvx",
+ "target": "mcp-server-time==2026.7.10",
+ "started": "2026-08-12T12:43:37.687945-04:00",
+ "finished": "2026-08-12T12:43:37.935035-04:00",
+ "protocol_version": "2025-11-25",
+ "server_info": {
+  "name": "mcp-time",
+  "version": "1.29.0"
+ },
+ "pages": [
+  {
+   "tools": [
+    {
+     "name": "get_current_time",
+     "description": "Get current time in a specific timezone",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "timezone": {
+        "type": "string",
+        "description": "IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Use 'America/New_York' as local timezone if no timezone provided by the user."
+       }
+      },
+      "required": [
+       "timezone"
+      ]
+     },
+     "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+     }
+    },
+    {
+     "name": "convert_time",
+     "description": "Convert time between timezones",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "source_timezone": {
+        "type": "string",
+        "description": "Source IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Use 'America/New_York' as local timezone if no source timezone provided by the user."
+       },
+       "time": {
+        "type": "string",
+        "description": "Time to convert in 24-hour format (HH:MM)"
+       },
+       "target_timezone": {
+        "type": "string",
+        "description": "Target IANA timezone name (e.g., 'Asia/Tokyo', 'America/San_Francisco'). Use 'America/New_York' as local timezone if no target timezone provided by the user."
+       }
+      },
+      "required": [
+       "source_timezone",
+       "time",
+       "target_timezone"
+      ]
+     },
+     "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+     }
+    }
+   ]
+  }
+ ],
+ "tool_count": 2
+}

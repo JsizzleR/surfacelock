@@ -1,0 +1,62 @@
+{
+ "id": "control-unstable",
+ "pass": 1,
+ "kind": "cmd",
+ "target": "python3",
+ "started": "2026-08-12T12:43:33.306355-04:00",
+ "finished": "2026-08-12T12:43:33.348684-04:00",
+ "protocol_version": "2026-07-28",
+ "server_info": {
+  "name": "toolslock-control",
+  "version": "0.1.0"
+ },
+ "pages": [
+  {
+   "tools": [
+    {
+     "name": "get_weather",
+     "description": "Get the weather for a city.",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "city": {
+        "type": "string"
+       },
+       "units": {
+        "type": "string",
+        "enum": [
+         "c",
+         "f"
+        ]
+       },
+       "when": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "when",
+       "units",
+       "city"
+      ]
+     }
+    },
+    {
+     "name": "convert_units",
+     "description": "Convert a value between measurement units. (index generated 2026-08-12T16:43:33Z.147000)",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "value": {
+        "type": "number"
+       }
+      },
+      "required": [
+       "value"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "tool_count": 2
+}
