@@ -1,0 +1,18 @@
+# Build artifacts
+/surfacelock
+/dist/
+
+# Session/meta files never belong in this repo (kept clean by policy)
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+.codex/
+AGENTS.md
+drafts/
+notes/
+*.local.*
+
+# OS/editor noise
+.DS_Store
+.env
+.env.*
