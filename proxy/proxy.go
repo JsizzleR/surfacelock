@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 
 	"github.com/JsizzleR/surfacelock"
 )
@@ -119,12 +120,20 @@ type core struct {
 	mu      sync.Mutex // verification and routing state
 	pending map[string]*pendingReq
 	cursors map[string]*enumeration
+	outcome Outcome
 
 	outMu sync.Mutex
 	out   io.Writer
 
-	findMu  sync.Mutex
-	outcome Outcome
+	// Findings ride a background drain so the diagnostic sink can never block the
+	// verification path — finding() is called under c.mu, and a blocking write to
+	// a slow sink there would make the audit channel a participant in verification
+	// (the D-409 shape). finding() does a non-blocking send and drops (counted) on
+	// backpressure; drainFindings owns the actual writes.
+	findCh      chan string
+	findDone    chan struct{}
+	findWG      sync.WaitGroup
+	findDropped atomic.Int64
 }
 
 // Run proxies one session: client frames arrive on clientIn (newline-delimited
@@ -150,12 +159,16 @@ func Run(ctx context.Context, cfg Config, clientIn io.Reader, clientOut io.Write
 	}
 
 	c := &core{
-		cfg:     cfg,
-		v:       newVerifier(cfg.Entry, cfg.Name, cfg.Warn, cfg.Limits),
-		pending: map[string]*pendingReq{},
-		cursors: map[string]*enumeration{},
-		out:     clientOut,
+		cfg:      cfg,
+		v:        newVerifier(cfg.Entry, cfg.Name, cfg.Warn, cfg.Limits),
+		pending:  map[string]*pendingReq{},
+		cursors:  map[string]*enumeration{},
+		out:      clientOut,
+		findCh:   make(chan string, 512),
+		findDone: make(chan struct{}),
 	}
+	c.findWG.Add(1)
+	go c.drainFindings()
 
 	backend := cfg.Backend
 	if backend == nil {
@@ -208,18 +221,52 @@ func Run(ctx context.Context, cfg Config, clientIn io.Reader, clientOut io.Write
 	c.mu.Unlock()
 	c.finding("session end: drift=%v inadmissible=%v transport=%v",
 		out.Drift, out.Inadmissible, out.Transport)
+	close(c.findDone)
+	c.findWG.Wait() // flush the audit log before returning (bounded by the sink's own health)
 	return out, nil
+}
+
+// drainFindings owns all writes to cfg.Findings. It is the ONLY place a slow
+// sink can block, and it blocks nothing but itself: finding() never waits on it.
+func (c *core) drainFindings() {
+	defer c.findWG.Done()
+	for {
+		select {
+		case line := <-c.findCh:
+			io.WriteString(c.cfg.Findings, line)
+		case <-c.findDone:
+			for {
+				select {
+				case line := <-c.findCh:
+					io.WriteString(c.cfg.Findings, line)
+				default:
+					if n := c.findDropped.Load(); n > 0 {
+						io.WriteString(c.cfg.Findings, "surfacelock["+c.cfg.Name+
+							"]: "+fmt.Sprintf("%d diagnostic line(s) dropped (findings sink slow)\n", n))
+					}
+					return
+				}
+			}
+		}
+	}
 }
 
 func (c *core) setDrift()        { c.mu.Lock(); c.outcome.Drift = true; c.mu.Unlock() }
 func (c *core) setInadmissible() { c.mu.Lock(); c.outcome.Inadmissible = true; c.mu.Unlock() }
 func (c *core) setTransport()    { c.mu.Lock(); c.outcome.Transport = true; c.mu.Unlock() }
 
+// finding stages one sanitized diagnostic line for the drain goroutine. It NEVER
+// blocks — a full channel (slow sink) drops the line and counts it — so a finding
+// emitted under c.mu (applyVerdictLocked) cannot make the audit sink a participant
+// in verification (D-409). findCh is never closed, so a late finding() from a
+// leaked client goroutine is a safe drop, never a send-on-closed panic.
 func (c *core) finding(format string, args ...any) {
 	line := "surfacelock[" + c.cfg.Name + "]: " + surfacelock.Sanitize(fmt.Sprintf(format, args...)) + "\n"
-	c.findMu.Lock()
-	io.WriteString(c.cfg.Findings, line)
-	c.findMu.Unlock()
+	select {
+	case c.findCh <- line:
+	default:
+		c.findDropped.Add(1)
+	}
 }
 
 func (c *core) writeFrame(b []byte) {
@@ -254,10 +301,13 @@ func (c *core) serveClient(ctx context.Context, clientIn io.Reader) {
 		}
 		c.handleClientFrame(ctx, append([]byte(nil), line...))
 	}
-	if err := sc.Err(); err != nil {
+	// After ctx is cancelled Run has already returned (it does not join this
+	// goroutine); a late error here must not write findings the caller's sink may
+	// have closed, nor flip an outcome the caller already received (F4).
+	if err := sc.Err(); err != nil && ctx.Err() == nil {
 		if errors.Is(err, bufio.ErrTooLong) {
 			c.finding("client frame exceeds %d bytes — session terminated (framing cannot be recovered)", relayFrameCap)
-		} else if ctx.Err() == nil {
+		} else {
 			c.finding("client read: %s", boundText(err.Error(), 200))
 		}
 		c.setTransport()

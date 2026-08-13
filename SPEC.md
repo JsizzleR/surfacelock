@@ -284,6 +284,18 @@ produces a drift verdict.
   uncanonicalizable, hence inadmissible. An implementation whose canonicalizer
   tolerates duplicate keys MUST refuse them itself — decoder last-key-wins semantics
   would let a tool present one value to the hash and another to a consumer.
+- **Case-variant aliases of sensitive keys INSIDE a tool object** — a tool
+  object carrying a case-variant of a key this spec reads by exact name is
+  inadmissible: any variant of `name`, `title`, `inputSchema`, `outputSchema`,
+  or `annotations` at the tool's top level, or a variant of `description` at ANY
+  depth (per-property schema descriptions are prompt text). `{"description":"…",
+  "Description":"<inject>"}` has two DISTINCT members to a canonicalizer, so it
+  survives the duplicate-key rule, but an implementation hashes and classifies
+  the exact-case `description` while a client whose decoder folds field names
+  last-wins (Go's `encoding/json` into a struct) reads the variant — the alias is
+  an injection (`Description`) or identity (`Name`) channel that hashes clean.
+  This is the same rule the page and handshake keys already carry, applied where
+  it had no guard.
 - **Case-variant collisions on the `tools` or `nextCursor` page keys** —
   `{"tools":[…],"TOOLS":[…]}` has two DISTINCT members to a canonicalizer (so it
   survives the duplicate-key rule), but a decoder that matches object keys

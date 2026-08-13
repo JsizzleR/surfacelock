@@ -232,6 +232,14 @@ func hashTool(rawTool json.RawMessage) (*Tool, error) {
 	if !utf8.Valid(rawTool) {
 		return nil, inadmissible("tool is not valid UTF-8")
 	}
+	// Refuse a tool object carrying a case-variant of a key this package reads by
+	// exact name — the D-346 aliasing shape, INSIDE the tool object, where the page
+	// and handshake guards do not reach. Applied here (the shared shape validator)
+	// so Admit AND Validate refuse it: a confusable tool never enters the lockfile
+	// and a live one is inadmissible, never forwarded/classified/pinned.
+	if err := checkAliasedToolKeys(rawTool); err != nil {
+		return nil, inadmissible("tool %v", err)
+	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(rawTool, &fields); err != nil {
 		return nil, inadmissible("tool is not a JSON object: %v", err)
@@ -291,6 +299,57 @@ func trimJSONSpace(b []byte) []byte {
 	return bytes.TrimFunc(b, func(r rune) bool {
 		return r == ' ' || r == '\t' || r == '\n' || r == '\r'
 	})
+}
+
+// toolSensitiveKeys are the tool-object member names this package reads by exact,
+// case-sensitive name (h_desc / h_schema / h_tool, name matching and sorting) and
+// that a client also reads. A case-variant of one of these is an aliasing attack:
+// surfacelock hashes/classifies the exact-case spelling while a client whose JSON
+// decoder folds field names last-wins (Go's encoding/json into a struct) reads the
+// variant — an injection ("Description") or identity ("Name") channel that hashes
+// clean. "description" is sensitive at ANY depth because per-property schema
+// descriptions are prompt text collected by exact name; the rest are the tool's own
+// top-level fields.
+var toolSensitiveKeys = []string{"name", "description", "title", "inputSchema", "outputSchema", "annotations"}
+
+// checkAliasedToolKeys refuses a tool object that carries a case-variant of any
+// sensitive key (SPEC.md §6). The same EqualFold discipline DecodeExact and Admit
+// apply to handshake and page keys, extended into the tool object — the one place
+// the D-346 shape had no guard.
+func checkAliasedToolKeys(rawTool json.RawMessage) error {
+	var v any
+	if err := json.Unmarshal(rawTool, &v); err != nil {
+		return fmt.Errorf("is not a JSON object: %v", err)
+	}
+	return walkAliasedKeys(v, true)
+}
+
+func walkAliasedKeys(v any, top bool) error {
+	switch t := v.(type) {
+	case map[string]any:
+		for k := range t {
+			for _, s := range toolSensitiveKeys {
+				if !top && s != "description" {
+					continue // name/title/schema/annotations are tool fields: top level only
+				}
+				if k != s && strings.EqualFold(k, s) {
+					return fmt.Errorf("key %q is a case-variant of %q", k, s)
+				}
+			}
+		}
+		for _, mv := range t {
+			if err := walkAliasedKeys(mv, false); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, e := range t {
+			if err := walkAliasedKeys(e, false); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // validName enforces SPEC.md §6 name rules: non-empty valid UTF-8, a byte cap, and
