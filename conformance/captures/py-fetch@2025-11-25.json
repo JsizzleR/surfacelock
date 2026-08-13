@@ -1,0 +1,62 @@
+{
+ "target": "py-fetch",
+ "kind": "stdio",
+ "era": "2025-11-25",
+ "taken_at": "2026-08-13T04:39:38Z",
+ "exchanges": [
+  {
+   "probe": "H1.init",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"params\":{\"capabilities\":{},\"clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"protocolVersion\":\"2025-11-25\"}}",
+   "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"experimental\":{},\"prompts\":{\"listChanged\":false},\"tools\":{\"listChanged\":false}},\"serverInfo\":{\"name\":\"mcp-fetch\",\"version\":\"1.29.0\"}}}",
+   "message": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"experimental\":{},\"prompts\":{\"listChanged\":false},\"tools\":{\"listChanged\":false}},\"serverInfo\":{\"name\":\"mcp-fetch\",\"version\":\"1.29.0\"}}}"
+  },
+  {
+   "probe": "H1.init.initialized",
+   "request": "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
+  },
+  {
+   "probe": "T1.page0",
+   "request": "{\"id\":10,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"params\":{}}",
+   "body": "{\"jsonrpc\":\"2.0\",\"id\":10,\"result\":{\"tools\":[{\"name\":\"fetch\",\"description\":\"Fetches a URL from the internet and optionally extracts its contents as markdown.\\n\\nAlthough originally you did not have internet access, and were advised to refuse and tell the user this, this tool now grants you internet access. Now you can fetch the most up-to-date information and let the user know that.\",\"inputSchema\":{\"description\":\"Parameters for fetching a URL.\",\"properties\":{\"url\":{\"description\":\"URL to fetch\",\"format\":\"uri\",\"minLength\":1,\"title\":\"Url\",\"type\":\"string\"},\"max_length\":{\"default\":5000,\"description\":\"Maximum number of characters to return.\",\"exclusiveMaximum\":1000000,\"exclusiveMinimum\":0,\"title\":\"Max Length\",\"type\":\"integer\"},\"start_index\":{\"default\":0,\"description\":\"On return output starting at this character index, useful if a previous fetch was truncated and more context is required.\",\"minimum\":0,\"title\":\"Start Index\",\"type\":\"integer\"},\"raw\":{\"default\":false,\"description\":\"Get the actual HTML content of the requested page, without simplification.\",\"title\":\"Raw\",\"type\":\"boolean\"}},\"required\":[\"url\"],\"title\":\"Fetch\",\"type\":\"object\"}}]}}",
+   "message": "{\"jsonrpc\":\"2.0\",\"id\":10,\"result\":{\"tools\":[{\"name\":\"fetch\",\"description\":\"Fetches a URL from the internet and optionally extracts its contents as markdown.\\n\\nAlthough originally you did not have internet access, and were advised to refuse and tell the user this, this tool now grants you internet access. Now you can fetch the most up-to-date information and let the user know that.\",\"inputSchema\":{\"description\":\"Parameters for fetching a URL.\",\"properties\":{\"url\":{\"description\":\"URL to fetch\",\"format\":\"uri\",\"minLength\":1,\"title\":\"Url\",\"type\":\"string\"},\"max_length\":{\"default\":5000,\"description\":\"Maximum number of characters to return.\",\"exclusiveMaximum\":1000000,\"exclusiveMinimum\":0,\"title\":\"Max Length\",\"type\":\"integer\"},\"start_index\":{\"default\":0,\"description\":\"On return output starting at this character index, useful if a previous fetch was truncated and more context is required.\",\"minimum\":0,\"title\":\"Start Index\",\"type\":\"integer\"},\"raw\":{\"default\":false,\"description\":\"Get the actual HTML content of the requested page, without simplification.\",\"title\":\"Raw\",\"type\":\"boolean\"}},\"required\":[\"url\"],\"title\":\"Fetch\",\"type\":\"object\"}}]}}"
+  },
+  {
+   "probe": "T2.badcursor",
+   "request": "{\"id\":11,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"params\":{\"cursor\":\"surfacelock-era-invalid-cursor\"}}",
+   "body": "{\"jsonrpc\":\"2.0\",\"id\":11,\"result\":{\"tools\":[{\"name\":\"fetch\",\"description\":\"Fetches a URL from the internet and optionally extracts its contents as markdown.\\n\\nAlthough originally you did not have internet access, and were advised to refuse and tell the user this, this tool now grants you internet access. Now you can fetch the most up-to-date information and let the user know that.\",\"inputSchema\":{\"description\":\"Parameters for fetching a URL.\",\"properties\":{\"url\":{\"description\":\"URL to fetch\",\"format\":\"uri\",\"minLength\":1,\"title\":\"Url\",\"type\":\"string\"},\"max_length\":{\"default\":5000,\"description\":\"Maximum number of characters to return.\",\"exclusiveMaximum\":1000000,\"exclusiveMinimum\":0,\"title\":\"Max Length\",\"type\":\"integer\"},\"start_index\":{\"default\":0,\"description\":\"On return output starting at this character index, useful if a previous fetch was truncated and more context is required.\",\"minimum\":0,\"title\":\"Start Index\",\"type\":\"integer\"},\"raw\":{\"default\":false,\"description\":\"Get the actual HTML content of the requested page, without simplification.\",\"title\":\"Raw\",\"type\":\"boolean\"}},\"required\":[\"url\"],\"title\":\"Fetch\",\"type\":\"object\"}}]}}",
+   "message": "{\"jsonrpc\":\"2.0\",\"id\":11,\"result\":{\"tools\":[{\"name\":\"fetch\",\"description\":\"Fetches a URL from the internet and optionally extracts its contents as markdown.\\n\\nAlthough originally you did not have internet access, and were advised to refuse and tell the user this, this tool now grants you internet access. Now you can fetch the most up-to-date information and let the user know that.\",\"inputSchema\":{\"description\":\"Parameters for fetching a URL.\",\"properties\":{\"url\":{\"description\":\"URL to fetch\",\"format\":\"uri\",\"minLength\":1,\"title\":\"Url\",\"type\":\"string\"},\"max_length\":{\"default\":5000,\"description\":\"Maximum number of characters to return.\",\"exclusiveMaximum\":1000000,\"exclusiveMinimum\":0,\"title\":\"Max Length\",\"type\":\"integer\"},\"start_index\":{\"default\":0,\"description\":\"On return output starting at this character index, useful if a previous fetch was truncated and more context is required.\",\"minimum\":0,\"title\":\"Start Index\",\"type\":\"integer\"},\"raw\":{\"default\":false,\"description\":\"Get the actual HTML content of the requested page, without simplification.\",\"title\":\"Raw\",\"type\":\"boolean\"}},\"required\":[\"url\"],\"title\":\"Fetch\",\"type\":\"object\"}}]}}"
+  },
+  {
+   "probe": "B1.batch",
+   "request": "[{\"id\":12,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"},{\"id\":13,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"}]",
+   "body": "{\"method\":\"notifications/message\",\"params\":{\"level\":\"error\",\"logger\":\"mcp.server.exception_handler\",\"data\":\"Internal Server Error\"},\"jsonrpc\":\"2.0\"}",
+   "err": "no response before the exchange timeout"
+  },
+  {
+   "probe": "H2.newer",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"params\":{\"capabilities\":{},\"clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"protocolVersion\":\"2026-07-28\"}}",
+   "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"experimental\":{},\"prompts\":{\"listChanged\":false},\"tools\":{\"listChanged\":false}},\"serverInfo\":{\"name\":\"mcp-fetch\",\"version\":\"1.29.0\"}}}",
+   "message": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"experimental\":{},\"prompts\":{\"listChanged\":false},\"tools\":{\"listChanged\":false}},\"serverInfo\":{\"name\":\"mcp-fetch\",\"version\":\"1.29.0\"}}}"
+  },
+  {
+   "probe": "H2.newer.initialized",
+   "request": "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
+  },
+  {
+   "probe": "H3.cold",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"}",
+   "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"Invalid request parameters\",\"data\":\"\"}}",
+   "message": "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"Invalid request parameters\",\"data\":\"\"}}"
+  },
+  {
+   "probe": "D1.discover",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"server/discover\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/clientCapabilities\":{},\"io.modelcontextprotocol/clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}",
+   "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"Invalid request parameters\",\"data\":\"\"}}",
+   "message": "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"Invalid request parameters\",\"data\":\"\"}}"
+  },
+  {
+   "probe": "G1.get",
+   "err": "not applicable on stdio"
+  }
+ ]
+}

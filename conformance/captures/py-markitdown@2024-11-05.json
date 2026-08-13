@@ -1,0 +1,59 @@
+{
+ "target": "py-markitdown",
+ "kind": "stdio",
+ "era": "2024-11-05",
+ "taken_at": "2026-08-13T04:41:29Z",
+ "exchanges": [
+  {
+   "probe": "H1.init",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"params\":{\"capabilities\":{},\"clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"protocolVersion\":\"2024-11-05\"}}",
+   "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"experimental\":{},\"prompts\":{\"listChanged\":false},\"resources\":{\"subscribe\":false,\"listChanged\":false},\"tools\":{\"listChanged\":false}},\"serverInfo\":{\"name\":\"markitdown\",\"version\":\"1.8.1\"}}}",
+   "message": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"experimental\":{},\"prompts\":{\"listChanged\":false},\"resources\":{\"subscribe\":false,\"listChanged\":false},\"tools\":{\"listChanged\":false}},\"serverInfo\":{\"name\":\"markitdown\",\"version\":\"1.8.1\"}}}"
+  },
+  {
+   "probe": "H1.init.initialized",
+   "request": "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
+  },
+  {
+   "probe": "T1.page0",
+   "request": "{\"id\":10,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"params\":{}}",
+   "body": "{\"jsonrpc\":\"2.0\",\"id\":10,\"result\":{\"tools\":[{\"name\":\"convert_to_markdown\",\"description\":\"Convert a resource described by an http:, https:, file: or data: URI to markdown\",\"inputSchema\":{\"properties\":{\"uri\":{\"title\":\"Uri\",\"type\":\"string\"}},\"required\":[\"uri\"],\"title\":\"convert_to_markdownArguments\",\"type\":\"object\"}}]}}",
+   "message": "{\"jsonrpc\":\"2.0\",\"id\":10,\"result\":{\"tools\":[{\"name\":\"convert_to_markdown\",\"description\":\"Convert a resource described by an http:, https:, file: or data: URI to markdown\",\"inputSchema\":{\"properties\":{\"uri\":{\"title\":\"Uri\",\"type\":\"string\"}},\"required\":[\"uri\"],\"title\":\"convert_to_markdownArguments\",\"type\":\"object\"}}]}}"
+  },
+  {
+   "probe": "T2.badcursor",
+   "request": "{\"id\":11,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"params\":{\"cursor\":\"surfacelock-era-invalid-cursor\"}}",
+   "body": "{\"jsonrpc\":\"2.0\",\"id\":11,\"result\":{\"tools\":[{\"name\":\"convert_to_markdown\",\"description\":\"Convert a resource described by an http:, https:, file: or data: URI to markdown\",\"inputSchema\":{\"properties\":{\"uri\":{\"title\":\"Uri\",\"type\":\"string\"}},\"required\":[\"uri\"],\"title\":\"convert_to_markdownArguments\",\"type\":\"object\"}}]}}",
+   "message": "{\"jsonrpc\":\"2.0\",\"id\":11,\"result\":{\"tools\":[{\"name\":\"convert_to_markdown\",\"description\":\"Convert a resource described by an http:, https:, file: or data: URI to markdown\",\"inputSchema\":{\"properties\":{\"uri\":{\"title\":\"Uri\",\"type\":\"string\"}},\"required\":[\"uri\"],\"title\":\"convert_to_markdownArguments\",\"type\":\"object\"}}]}}"
+  },
+  {
+   "probe": "B1.batch",
+   "request": "[{\"id\":12,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"},{\"id\":13,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"}]",
+   "err": "no response before the exchange timeout"
+  },
+  {
+   "probe": "H2.newer",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"params\":{\"capabilities\":{},\"clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"protocolVersion\":\"2026-07-28\"}}",
+   "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"experimental\":{},\"prompts\":{\"listChanged\":false},\"resources\":{\"subscribe\":false,\"listChanged\":false},\"tools\":{\"listChanged\":false}},\"serverInfo\":{\"name\":\"markitdown\",\"version\":\"1.8.1\"}}}",
+   "message": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"experimental\":{},\"prompts\":{\"listChanged\":false},\"resources\":{\"subscribe\":false,\"listChanged\":false},\"tools\":{\"listChanged\":false}},\"serverInfo\":{\"name\":\"markitdown\",\"version\":\"1.8.1\"}}}"
+  },
+  {
+   "probe": "H2.newer.initialized",
+   "request": "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
+  },
+  {
+   "probe": "H3.cold",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"}",
+   "err": "no response before the exchange timeout"
+  },
+  {
+   "probe": "D1.discover",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"server/discover\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/clientCapabilities\":{},\"io.modelcontextprotocol/clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}",
+   "err": "no response before the exchange timeout"
+  },
+  {
+   "probe": "G1.get",
+   "err": "not applicable on stdio"
+  }
+ ]
+}

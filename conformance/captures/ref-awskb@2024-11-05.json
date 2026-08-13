@@ -1,0 +1,61 @@
+{
+ "target": "ref-awskb",
+ "kind": "stdio",
+ "era": "2024-11-05",
+ "taken_at": "2026-08-13T04:36:29Z",
+ "exchanges": [
+  {
+   "probe": "H1.init",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"params\":{\"capabilities\":{},\"clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"protocolVersion\":\"2024-11-05\"}}",
+   "body": "{\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"aws-kb-retrieval-server\",\"version\":\"0.2.0\"}},\"jsonrpc\":\"2.0\",\"id\":1}",
+   "message": "{\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"aws-kb-retrieval-server\",\"version\":\"0.2.0\"}},\"jsonrpc\":\"2.0\",\"id\":1}"
+  },
+  {
+   "probe": "H1.init.initialized",
+   "request": "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
+  },
+  {
+   "probe": "T1.page0",
+   "request": "{\"id\":10,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"params\":{}}",
+   "body": "{\"result\":{\"tools\":[{\"name\":\"retrieve_from_aws_kb\",\"description\":\"Performs retrieval from the AWS Knowledge Base using the provided query and Knowledge Base ID.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"The query to perform retrieval on\"},\"knowledgeBaseId\":{\"type\":\"string\",\"description\":\"The ID of the AWS Knowledge Base\"},\"n\":{\"type\":\"number\",\"default\":3,\"description\":\"Number of results to retrieve\"}},\"required\":[\"query\",\"knowledgeBaseId\"]}}]},\"jsonrpc\":\"2.0\",\"id\":10}",
+   "message": "{\"result\":{\"tools\":[{\"name\":\"retrieve_from_aws_kb\",\"description\":\"Performs retrieval from the AWS Knowledge Base using the provided query and Knowledge Base ID.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"The query to perform retrieval on\"},\"knowledgeBaseId\":{\"type\":\"string\",\"description\":\"The ID of the AWS Knowledge Base\"},\"n\":{\"type\":\"number\",\"default\":3,\"description\":\"Number of results to retrieve\"}},\"required\":[\"query\",\"knowledgeBaseId\"]}}]},\"jsonrpc\":\"2.0\",\"id\":10}"
+  },
+  {
+   "probe": "T2.badcursor",
+   "request": "{\"id\":11,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"params\":{\"cursor\":\"surfacelock-era-invalid-cursor\"}}",
+   "body": "{\"result\":{\"tools\":[{\"name\":\"retrieve_from_aws_kb\",\"description\":\"Performs retrieval from the AWS Knowledge Base using the provided query and Knowledge Base ID.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"The query to perform retrieval on\"},\"knowledgeBaseId\":{\"type\":\"string\",\"description\":\"The ID of the AWS Knowledge Base\"},\"n\":{\"type\":\"number\",\"default\":3,\"description\":\"Number of results to retrieve\"}},\"required\":[\"query\",\"knowledgeBaseId\"]}}]},\"jsonrpc\":\"2.0\",\"id\":11}",
+   "message": "{\"result\":{\"tools\":[{\"name\":\"retrieve_from_aws_kb\",\"description\":\"Performs retrieval from the AWS Knowledge Base using the provided query and Knowledge Base ID.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"The query to perform retrieval on\"},\"knowledgeBaseId\":{\"type\":\"string\",\"description\":\"The ID of the AWS Knowledge Base\"},\"n\":{\"type\":\"number\",\"default\":3,\"description\":\"Number of results to retrieve\"}},\"required\":[\"query\",\"knowledgeBaseId\"]}}]},\"jsonrpc\":\"2.0\",\"id\":11}"
+  },
+  {
+   "probe": "B1.batch",
+   "request": "[{\"id\":12,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"},{\"id\":13,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"}]",
+   "err": "no response before the exchange timeout"
+  },
+  {
+   "probe": "H2.newer",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"params\":{\"capabilities\":{},\"clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"protocolVersion\":\"2026-07-28\"}}",
+   "body": "{\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"aws-kb-retrieval-server\",\"version\":\"0.2.0\"}},\"jsonrpc\":\"2.0\",\"id\":1}",
+   "message": "{\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"aws-kb-retrieval-server\",\"version\":\"0.2.0\"}},\"jsonrpc\":\"2.0\",\"id\":1}"
+  },
+  {
+   "probe": "H2.newer.initialized",
+   "request": "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
+  },
+  {
+   "probe": "H3.cold",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"}",
+   "body": "{\"result\":{\"tools\":[{\"name\":\"retrieve_from_aws_kb\",\"description\":\"Performs retrieval from the AWS Knowledge Base using the provided query and Knowledge Base ID.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"The query to perform retrieval on\"},\"knowledgeBaseId\":{\"type\":\"string\",\"description\":\"The ID of the AWS Knowledge Base\"},\"n\":{\"type\":\"number\",\"default\":3,\"description\":\"Number of results to retrieve\"}},\"required\":[\"query\",\"knowledgeBaseId\"]}}]},\"jsonrpc\":\"2.0\",\"id\":1}",
+   "message": "{\"result\":{\"tools\":[{\"name\":\"retrieve_from_aws_kb\",\"description\":\"Performs retrieval from the AWS Knowledge Base using the provided query and Knowledge Base ID.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"The query to perform retrieval on\"},\"knowledgeBaseId\":{\"type\":\"string\",\"description\":\"The ID of the AWS Knowledge Base\"},\"n\":{\"type\":\"number\",\"default\":3,\"description\":\"Number of results to retrieve\"}},\"required\":[\"query\",\"knowledgeBaseId\"]}}]},\"jsonrpc\":\"2.0\",\"id\":1}"
+  },
+  {
+   "probe": "D1.discover",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"server/discover\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/clientCapabilities\":{},\"io.modelcontextprotocol/clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}",
+   "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32601,\"message\":\"Method not found\"}}",
+   "message": "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32601,\"message\":\"Method not found\"}}"
+  },
+  {
+   "probe": "G1.get",
+   "err": "not applicable on stdio"
+  }
+ ]
+}

@@ -188,6 +188,28 @@ SHOULD; recorded verbatim in the matrix either way.
   observed refusal in the runs so far was header-caused; the fix is fidelity,
   not a regrade of existing evidence.
 
+- **Dual-era servers (2026-08-13, after the corpus run).** `@upstash/context7-mcp`
+  4.0.2 answers a classic `initialize` at 2025-11-25 AND serves `server/discover`
+  with a valid `DiscoverResult` — a dual-era server, which the 2026-07-28 spec's
+  backward-compatibility section explicitly permits ("a server … MAY implement
+  both behaviors"). Classic-era D1 therefore grades a SUCCESS carrying
+  `supportedVersions` as OBS ("dual-era — cross-grade at its modern era"); only
+  a success WITHOUT the DiscoverResult shape (a server "answering" a method it
+  does not implement) violates. Symmetrically, when grading a dual-era server AT
+  the modern era: H1's `initialize` MAY be answered (the compat matrix's "Legacy
+  client → Dual-era server: Works" row) — a success carrying a valid
+  initialize-result shape is OBS, and R1 excludes the H1 exchange (a legacy
+  handshake's result owes no `resultType`). The modern-side duties (D1's
+  required members, V2, C1, S2) still grade in full — a dual-era server's
+  modern face owes everything a modern-only face owes.
+- **Truncated captures grade unreached (2026-08-13, same run).** Grading is over
+  the retained capture, and the Notion server's real `tools/list` exceeded the
+  64 KiB per-exchange capture cap — the wire exchange was fine, the capture was
+  cut, and the cell graded a violation off cut bytes, against this document's
+  own rule. The capture cap now equals the wire admission cap (1 MiB), and an
+  exchange whose truncation prevented classification grades `unreached(capture
+  truncated)`, never a verdict.
+
 ## Verdict model
 
 Per (target, era): **CONFORMANT** — every applicable MUST cell passed;

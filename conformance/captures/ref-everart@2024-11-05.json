@@ -1,0 +1,61 @@
+{
+ "target": "ref-everart",
+ "kind": "stdio",
+ "era": "2024-11-05",
+ "taken_at": "2026-08-13T04:36:12Z",
+ "exchanges": [
+  {
+   "probe": "H1.init",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"params\":{\"capabilities\":{},\"clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"protocolVersion\":\"2024-11-05\"}}",
+   "body": "{\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{},\"resources\":{}},\"serverInfo\":{\"name\":\"example-servers/everart\",\"version\":\"0.2.0\"}},\"jsonrpc\":\"2.0\",\"id\":1}",
+   "message": "{\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{},\"resources\":{}},\"serverInfo\":{\"name\":\"example-servers/everart\",\"version\":\"0.2.0\"}},\"jsonrpc\":\"2.0\",\"id\":1}"
+  },
+  {
+   "probe": "H1.init.initialized",
+   "request": "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
+  },
+  {
+   "probe": "T1.page0",
+   "request": "{\"id\":10,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"params\":{}}",
+   "body": "{\"result\":{\"tools\":[{\"name\":\"generate_image\",\"description\":\"Generate images using EverArt Models and returns a clickable link to view the generated image. The tool will return a URL that can be clicked to view the image in a browser. Available models:\\n- 5000:FLUX1.1: Standard quality\\n- 9000:FLUX1.1-ultra: Ultra high quality\\n- 6000:SD3.5: Stable Diffusion 3.5\\n- 7000:Recraft-Real: Photorealistic style\\n- 8000:Recraft-Vector: Vector art style\\n\\nThe response will contain a direct link to view the generated image.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"prompt\":{\"type\":\"string\",\"description\":\"Text description of desired image\"},\"model\":{\"type\":\"string\",\"description\":\"Model ID (5000:FLUX1.1, 9000:FLUX1.1-ultra, 6000:SD3.5, 7000:Recraft-Real, 8000:Recraft-Vector)\",\"default\":\"5000\"},\"image_count\":{\"type\":\"number\",\"description\":\"Number of images to generate\",\"default\":1}},\"required\":[\"prompt\"]}}]},\"jsonrpc\":\"2.0\",\"id\":10}",
+   "message": "{\"result\":{\"tools\":[{\"name\":\"generate_image\",\"description\":\"Generate images using EverArt Models and returns a clickable link to view the generated image. The tool will return a URL that can be clicked to view the image in a browser. Available models:\\n- 5000:FLUX1.1: Standard quality\\n- 9000:FLUX1.1-ultra: Ultra high quality\\n- 6000:SD3.5: Stable Diffusion 3.5\\n- 7000:Recraft-Real: Photorealistic style\\n- 8000:Recraft-Vector: Vector art style\\n\\nThe response will contain a direct link to view the generated image.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"prompt\":{\"type\":\"string\",\"description\":\"Text description of desired image\"},\"model\":{\"type\":\"string\",\"description\":\"Model ID (5000:FLUX1.1, 9000:FLUX1.1-ultra, 6000:SD3.5, 7000:Recraft-Real, 8000:Recraft-Vector)\",\"default\":\"5000\"},\"image_count\":{\"type\":\"number\",\"description\":\"Number of images to generate\",\"default\":1}},\"required\":[\"prompt\"]}}]},\"jsonrpc\":\"2.0\",\"id\":10}"
+  },
+  {
+   "probe": "T2.badcursor",
+   "request": "{\"id\":11,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"params\":{\"cursor\":\"surfacelock-era-invalid-cursor\"}}",
+   "body": "{\"result\":{\"tools\":[{\"name\":\"generate_image\",\"description\":\"Generate images using EverArt Models and returns a clickable link to view the generated image. The tool will return a URL that can be clicked to view the image in a browser. Available models:\\n- 5000:FLUX1.1: Standard quality\\n- 9000:FLUX1.1-ultra: Ultra high quality\\n- 6000:SD3.5: Stable Diffusion 3.5\\n- 7000:Recraft-Real: Photorealistic style\\n- 8000:Recraft-Vector: Vector art style\\n\\nThe response will contain a direct link to view the generated image.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"prompt\":{\"type\":\"string\",\"description\":\"Text description of desired image\"},\"model\":{\"type\":\"string\",\"description\":\"Model ID (5000:FLUX1.1, 9000:FLUX1.1-ultra, 6000:SD3.5, 7000:Recraft-Real, 8000:Recraft-Vector)\",\"default\":\"5000\"},\"image_count\":{\"type\":\"number\",\"description\":\"Number of images to generate\",\"default\":1}},\"required\":[\"prompt\"]}}]},\"jsonrpc\":\"2.0\",\"id\":11}",
+   "message": "{\"result\":{\"tools\":[{\"name\":\"generate_image\",\"description\":\"Generate images using EverArt Models and returns a clickable link to view the generated image. The tool will return a URL that can be clicked to view the image in a browser. Available models:\\n- 5000:FLUX1.1: Standard quality\\n- 9000:FLUX1.1-ultra: Ultra high quality\\n- 6000:SD3.5: Stable Diffusion 3.5\\n- 7000:Recraft-Real: Photorealistic style\\n- 8000:Recraft-Vector: Vector art style\\n\\nThe response will contain a direct link to view the generated image.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"prompt\":{\"type\":\"string\",\"description\":\"Text description of desired image\"},\"model\":{\"type\":\"string\",\"description\":\"Model ID (5000:FLUX1.1, 9000:FLUX1.1-ultra, 6000:SD3.5, 7000:Recraft-Real, 8000:Recraft-Vector)\",\"default\":\"5000\"},\"image_count\":{\"type\":\"number\",\"description\":\"Number of images to generate\",\"default\":1}},\"required\":[\"prompt\"]}}]},\"jsonrpc\":\"2.0\",\"id\":11}"
+  },
+  {
+   "probe": "B1.batch",
+   "request": "[{\"id\":12,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"},{\"id\":13,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"}]",
+   "err": "no response before the exchange timeout"
+  },
+  {
+   "probe": "H2.newer",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"params\":{\"capabilities\":{},\"clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"protocolVersion\":\"2026-07-28\"}}",
+   "body": "{\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{},\"resources\":{}},\"serverInfo\":{\"name\":\"example-servers/everart\",\"version\":\"0.2.0\"}},\"jsonrpc\":\"2.0\",\"id\":1}",
+   "message": "{\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{},\"resources\":{}},\"serverInfo\":{\"name\":\"example-servers/everart\",\"version\":\"0.2.0\"}},\"jsonrpc\":\"2.0\",\"id\":1}"
+  },
+  {
+   "probe": "H2.newer.initialized",
+   "request": "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
+  },
+  {
+   "probe": "H3.cold",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"}",
+   "body": "{\"result\":{\"tools\":[{\"name\":\"generate_image\",\"description\":\"Generate images using EverArt Models and returns a clickable link to view the generated image. The tool will return a URL that can be clicked to view the image in a browser. Available models:\\n- 5000:FLUX1.1: Standard quality\\n- 9000:FLUX1.1-ultra: Ultra high quality\\n- 6000:SD3.5: Stable Diffusion 3.5\\n- 7000:Recraft-Real: Photorealistic style\\n- 8000:Recraft-Vector: Vector art style\\n\\nThe response will contain a direct link to view the generated image.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"prompt\":{\"type\":\"string\",\"description\":\"Text description of desired image\"},\"model\":{\"type\":\"string\",\"description\":\"Model ID (5000:FLUX1.1, 9000:FLUX1.1-ultra, 6000:SD3.5, 7000:Recraft-Real, 8000:Recraft-Vector)\",\"default\":\"5000\"},\"image_count\":{\"type\":\"number\",\"description\":\"Number of images to generate\",\"default\":1}},\"required\":[\"prompt\"]}}]},\"jsonrpc\":\"2.0\",\"id\":1}",
+   "message": "{\"result\":{\"tools\":[{\"name\":\"generate_image\",\"description\":\"Generate images using EverArt Models and returns a clickable link to view the generated image. The tool will return a URL that can be clicked to view the image in a browser. Available models:\\n- 5000:FLUX1.1: Standard quality\\n- 9000:FLUX1.1-ultra: Ultra high quality\\n- 6000:SD3.5: Stable Diffusion 3.5\\n- 7000:Recraft-Real: Photorealistic style\\n- 8000:Recraft-Vector: Vector art style\\n\\nThe response will contain a direct link to view the generated image.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"prompt\":{\"type\":\"string\",\"description\":\"Text description of desired image\"},\"model\":{\"type\":\"string\",\"description\":\"Model ID (5000:FLUX1.1, 9000:FLUX1.1-ultra, 6000:SD3.5, 7000:Recraft-Real, 8000:Recraft-Vector)\",\"default\":\"5000\"},\"image_count\":{\"type\":\"number\",\"description\":\"Number of images to generate\",\"default\":1}},\"required\":[\"prompt\"]}}]},\"jsonrpc\":\"2.0\",\"id\":1}"
+  },
+  {
+   "probe": "D1.discover",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"server/discover\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/clientCapabilities\":{},\"io.modelcontextprotocol/clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}",
+   "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32601,\"message\":\"Method not found\"}}",
+   "message": "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32601,\"message\":\"Method not found\"}}"
+  },
+  {
+   "probe": "G1.get",
+   "err": "not applicable on stdio"
+  }
+ ]
+}

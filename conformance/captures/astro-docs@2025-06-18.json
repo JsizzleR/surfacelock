@@ -1,0 +1,126 @@
+{
+ "target": "astro-docs",
+ "kind": "http",
+ "era": "2025-06-18",
+ "taken_at": "2026-08-13T04:32:46Z",
+ "exchanges": [
+  {
+   "probe": "H1.init",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"params\":{\"capabilities\":{},\"clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"protocolVersion\":\"2025-06-18\"}}",
+   "http_verb": "POST",
+   "status": 200,
+   "resp_hdr": {
+    "Content-Type": "text/event-stream"
+   },
+   "body": "event: message\ndata: {\"result\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"logging\":{},\"tools\":{\"listChanged\":true}},\"serverInfo\":{\"name\":\"Astro Docs server\",\"version\":\"1.0.0\"}},\"jsonrpc\":\"2.0\",\"id\":1}\n\n",
+   "message": "{\"result\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"logging\":{},\"tools\":{\"listChanged\":true}},\"serverInfo\":{\"name\":\"Astro Docs server\",\"version\":\"1.0.0\"}},\"jsonrpc\":\"2.0\",\"id\":1}"
+  },
+  {
+   "probe": "H1.init.initialized",
+   "request": "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}",
+   "http_verb": "POST",
+   "status": 202
+  },
+  {
+   "probe": "T1.page0",
+   "request": "{\"id\":10,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"params\":{}}",
+   "http_verb": "POST",
+   "req_hdr": {
+    "MCP-Protocol-Version": "2025-06-18"
+   },
+   "status": 200,
+   "resp_hdr": {
+    "Content-Type": "text/event-stream"
+   },
+   "body": "event: message\ndata: {\"result\":{\"tools\":[{\"name\":\"search_astro_docs\",\"title\":\"Search Astro Docs\",\"description\":\"Search the official Astro framework docs\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"Search query\"}},\"required\":[\"query\"],\"additionalProperties\":false,\"$schema\":\"http://json-schema.org/draft-07/schema#\"}}]},\"jsonrpc\":\"2.0\",\"id\":10}\n\n",
+   "message": "{\"result\":{\"tools\":[{\"name\":\"search_astro_docs\",\"title\":\"Search Astro Docs\",\"description\":\"Search the official Astro framework docs\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"Search query\"}},\"required\":[\"query\"],\"additionalProperties\":false,\"$schema\":\"http://json-schema.org/draft-07/schema#\"}}]},\"jsonrpc\":\"2.0\",\"id\":10}"
+  },
+  {
+   "probe": "V1.noheader",
+   "request": "{\"id\":11,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"}",
+   "http_verb": "POST",
+   "status": 200,
+   "resp_hdr": {
+    "Content-Type": "text/event-stream"
+   },
+   "body": "event: message\ndata: {\"result\":{\"tools\":[{\"name\":\"search_astro_docs\",\"title\":\"Search Astro Docs\",\"description\":\"Search the official Astro framework docs\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"Search query\"}},\"required\":[\"query\"],\"additionalProperties\":false,\"$schema\":\"http://json-schema.org/draft-07/schema#\"}}]},\"jsonrpc\":\"2.0\",\"id\":11}\n\n",
+   "message": "{\"result\":{\"tools\":[{\"name\":\"search_astro_docs\",\"title\":\"Search Astro Docs\",\"description\":\"Search the official Astro framework docs\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"Search query\"}},\"required\":[\"query\"],\"additionalProperties\":false,\"$schema\":\"http://json-schema.org/draft-07/schema#\"}}]},\"jsonrpc\":\"2.0\",\"id\":11}"
+  },
+  {
+   "probe": "T2.badcursor",
+   "request": "{\"id\":12,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"params\":{\"cursor\":\"surfacelock-era-invalid-cursor\"}}",
+   "http_verb": "POST",
+   "req_hdr": {
+    "MCP-Protocol-Version": "2025-06-18"
+   },
+   "status": 200,
+   "resp_hdr": {
+    "Content-Type": "text/event-stream"
+   },
+   "body": "event: message\ndata: {\"result\":{\"tools\":[{\"name\":\"search_astro_docs\",\"title\":\"Search Astro Docs\",\"description\":\"Search the official Astro framework docs\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"Search query\"}},\"required\":[\"query\"],\"additionalProperties\":false,\"$schema\":\"http://json-schema.org/draft-07/schema#\"}}]},\"jsonrpc\":\"2.0\",\"id\":12}\n\n",
+   "message": "{\"result\":{\"tools\":[{\"name\":\"search_astro_docs\",\"title\":\"Search Astro Docs\",\"description\":\"Search the official Astro framework docs\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"Search query\"}},\"required\":[\"query\"],\"additionalProperties\":false,\"$schema\":\"http://json-schema.org/draft-07/schema#\"}}]},\"jsonrpc\":\"2.0\",\"id\":12}"
+  },
+  {
+   "probe": "B1.batch",
+   "request": "[{\"id\":13,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"},{\"id\":14,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"}]",
+   "http_verb": "POST",
+   "req_hdr": {
+    "MCP-Protocol-Version": "2025-06-18"
+   },
+   "status": 200,
+   "resp_hdr": {
+    "Content-Type": "text/event-stream"
+   },
+   "body": "event: message\ndata: {\"result\":{\"tools\":[{\"name\":\"search_astro_docs\",\"title\":\"Search Astro Docs\",\"description\":\"Search the official Astro framework docs\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"Search query\"}},\"required\":[\"query\"],\"additionalProperties\":false,\"$schema\":\"http://json-schema.org/draft-07/schema#\"}}]},\"jsonrpc\":\"2.0\",\"id\":13}\n\n",
+   "message": "{\"result\":{\"tools\":[{\"name\":\"search_astro_docs\",\"title\":\"Search Astro Docs\",\"description\":\"Search the official Astro framework docs\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"Search query\"}},\"required\":[\"query\"],\"additionalProperties\":false,\"$schema\":\"http://json-schema.org/draft-07/schema#\"}}]},\"jsonrpc\":\"2.0\",\"id\":13}"
+  },
+  {
+   "probe": "H2.newer",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"params\":{\"capabilities\":{},\"clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"protocolVersion\":\"2026-07-28\"}}",
+   "http_verb": "POST",
+   "status": 200,
+   "resp_hdr": {
+    "Content-Type": "text/event-stream"
+   },
+   "body": "event: message\ndata: {\"result\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"logging\":{},\"tools\":{\"listChanged\":true}},\"serverInfo\":{\"name\":\"Astro Docs server\",\"version\":\"1.0.0\"}},\"jsonrpc\":\"2.0\",\"id\":1}\n\n",
+   "message": "{\"result\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"logging\":{},\"tools\":{\"listChanged\":true}},\"serverInfo\":{\"name\":\"Astro Docs server\",\"version\":\"1.0.0\"}},\"jsonrpc\":\"2.0\",\"id\":1}"
+  },
+  {
+   "probe": "H2.newer.initialized",
+   "request": "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}",
+   "http_verb": "POST",
+   "status": 202
+  },
+  {
+   "probe": "H3.cold",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"}",
+   "http_verb": "POST",
+   "status": 200,
+   "resp_hdr": {
+    "Content-Type": "text/event-stream"
+   },
+   "body": "event: message\ndata: {\"result\":{\"tools\":[{\"name\":\"search_astro_docs\",\"title\":\"Search Astro Docs\",\"description\":\"Search the official Astro framework docs\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"Search query\"}},\"required\":[\"query\"],\"additionalProperties\":false,\"$schema\":\"http://json-schema.org/draft-07/schema#\"}}]},\"jsonrpc\":\"2.0\",\"id\":1}\n\n",
+   "message": "{\"result\":{\"tools\":[{\"name\":\"search_astro_docs\",\"title\":\"Search Astro Docs\",\"description\":\"Search the official Astro framework docs\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"Search query\"}},\"required\":[\"query\"],\"additionalProperties\":false,\"$schema\":\"http://json-schema.org/draft-07/schema#\"}}]},\"jsonrpc\":\"2.0\",\"id\":1}"
+  },
+  {
+   "probe": "D1.discover",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"server/discover\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/clientCapabilities\":{},\"io.modelcontextprotocol/clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}",
+   "http_verb": "POST",
+   "status": 200,
+   "resp_hdr": {
+    "Content-Type": "text/event-stream"
+   },
+   "body": "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32601,\"message\":\"Method not found\"}}\n\n",
+   "message": "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32601,\"message\":\"Method not found\"}}"
+  },
+  {
+   "probe": "G1.get",
+   "http_verb": "GET",
+   "status": 405,
+   "resp_hdr": {
+    "Content-Type": "text/plain"
+   },
+   "body": "Method Not Allowed"
+  }
+ ]
+}

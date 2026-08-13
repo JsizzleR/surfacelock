@@ -1,0 +1,62 @@
+{
+ "target": "py-sqlite",
+ "kind": "stdio",
+ "era": "2025-11-25",
+ "taken_at": "2026-08-13T04:40:27Z",
+ "exchanges": [
+  {
+   "probe": "H1.init",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"params\":{\"capabilities\":{},\"clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"protocolVersion\":\"2025-11-25\"}}",
+   "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"experimental\":{},\"prompts\":{\"listChanged\":false},\"resources\":{\"subscribe\":false,\"listChanged\":false},\"tools\":{\"listChanged\":false}},\"serverInfo\":{\"name\":\"sqlite\",\"version\":\"0.1.0\"}}}",
+   "message": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"experimental\":{},\"prompts\":{\"listChanged\":false},\"resources\":{\"subscribe\":false,\"listChanged\":false},\"tools\":{\"listChanged\":false}},\"serverInfo\":{\"name\":\"sqlite\",\"version\":\"0.1.0\"}}}"
+  },
+  {
+   "probe": "H1.init.initialized",
+   "request": "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
+  },
+  {
+   "probe": "T1.page0",
+   "request": "{\"id\":10,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"params\":{}}",
+   "body": "{\"jsonrpc\":\"2.0\",\"id\":10,\"result\":{\"tools\":[{\"name\":\"read_query\",\"description\":\"Execute a SELECT query on the SQLite database\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"SELECT SQL query to execute\"}},\"required\":[\"query\"]}},{\"name\":\"write_query\",\"description\":\"Execute an INSERT, UPDATE, or DELETE query on the SQLite database\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"SQL query to execute\"}},\"required\":[\"query\"]}},{\"name\":\"create_table\",\"description\":\"Create a new table in the SQLite database\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"CREATE TABLE SQL statement\"}},\"required\":[\"query\"]}},{\"name\":\"list_tables\",\"description\":\"List all tables in the SQLite database\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},{\"name\":\"describe_table\",\"description\":\"Get the schema information for a specific table\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"table_name\":{\"type\":\"string\",\"description\":\"Name of the table to describe\"}},\"required\":[\"table_name\"]}},{\"name\":\"append_insight\",\"description\":\"Add a business insight to the memo\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"insight\":{\"type\":\"string\",\"description\":\"Business insight discovered from data analysis\"}},\"required\":[\"insight\"]}}]}}",
+   "message": "{\"jsonrpc\":\"2.0\",\"id\":10,\"result\":{\"tools\":[{\"name\":\"read_query\",\"description\":\"Execute a SELECT query on the SQLite database\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"SELECT SQL query to execute\"}},\"required\":[\"query\"]}},{\"name\":\"write_query\",\"description\":\"Execute an INSERT, UPDATE, or DELETE query on the SQLite database\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"SQL query to execute\"}},\"required\":[\"query\"]}},{\"name\":\"create_table\",\"description\":\"Create a new table in the SQLite database\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"CREATE TABLE SQL statement\"}},\"required\":[\"query\"]}},{\"name\":\"list_tables\",\"description\":\"List all tables in the SQLite database\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},{\"name\":\"describe_table\",\"description\":\"Get the schema information for a specific table\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"table_name\":{\"type\":\"string\",\"description\":\"Name of the table to describe\"}},\"required\":[\"table_name\"]}},{\"name\":\"append_insight\",\"description\":\"Add a business insight to the memo\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"insight\":{\"type\":\"string\",\"description\":\"Business insight discovered from data analysis\"}},\"required\":[\"insight\"]}}]}}"
+  },
+  {
+   "probe": "T2.badcursor",
+   "request": "{\"id\":11,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"params\":{\"cursor\":\"surfacelock-era-invalid-cursor\"}}",
+   "body": "{\"jsonrpc\":\"2.0\",\"id\":11,\"result\":{\"tools\":[{\"name\":\"read_query\",\"description\":\"Execute a SELECT query on the SQLite database\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"SELECT SQL query to execute\"}},\"required\":[\"query\"]}},{\"name\":\"write_query\",\"description\":\"Execute an INSERT, UPDATE, or DELETE query on the SQLite database\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"SQL query to execute\"}},\"required\":[\"query\"]}},{\"name\":\"create_table\",\"description\":\"Create a new table in the SQLite database\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"CREATE TABLE SQL statement\"}},\"required\":[\"query\"]}},{\"name\":\"list_tables\",\"description\":\"List all tables in the SQLite database\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},{\"name\":\"describe_table\",\"description\":\"Get the schema information for a specific table\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"table_name\":{\"type\":\"string\",\"description\":\"Name of the table to describe\"}},\"required\":[\"table_name\"]}},{\"name\":\"append_insight\",\"description\":\"Add a business insight to the memo\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"insight\":{\"type\":\"string\",\"description\":\"Business insight discovered from data analysis\"}},\"required\":[\"insight\"]}}]}}",
+   "message": "{\"jsonrpc\":\"2.0\",\"id\":11,\"result\":{\"tools\":[{\"name\":\"read_query\",\"description\":\"Execute a SELECT query on the SQLite database\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"SELECT SQL query to execute\"}},\"required\":[\"query\"]}},{\"name\":\"write_query\",\"description\":\"Execute an INSERT, UPDATE, or DELETE query on the SQLite database\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"SQL query to execute\"}},\"required\":[\"query\"]}},{\"name\":\"create_table\",\"description\":\"Create a new table in the SQLite database\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"CREATE TABLE SQL statement\"}},\"required\":[\"query\"]}},{\"name\":\"list_tables\",\"description\":\"List all tables in the SQLite database\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},{\"name\":\"describe_table\",\"description\":\"Get the schema information for a specific table\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"table_name\":{\"type\":\"string\",\"description\":\"Name of the table to describe\"}},\"required\":[\"table_name\"]}},{\"name\":\"append_insight\",\"description\":\"Add a business insight to the memo\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"insight\":{\"type\":\"string\",\"description\":\"Business insight discovered from data analysis\"}},\"required\":[\"insight\"]}}]}}"
+  },
+  {
+   "probe": "B1.batch",
+   "request": "[{\"id\":12,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"},{\"id\":13,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"}]",
+   "body": "{\"method\":\"notifications/message\",\"params\":{\"level\":\"error\",\"logger\":\"mcp.server.exception_handler\",\"data\":\"Internal Server Error\"},\"jsonrpc\":\"2.0\"}",
+   "err": "no response before the exchange timeout"
+  },
+  {
+   "probe": "H2.newer",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"params\":{\"capabilities\":{},\"clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"protocolVersion\":\"2026-07-28\"}}",
+   "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"experimental\":{},\"prompts\":{\"listChanged\":false},\"resources\":{\"subscribe\":false,\"listChanged\":false},\"tools\":{\"listChanged\":false}},\"serverInfo\":{\"name\":\"sqlite\",\"version\":\"0.1.0\"}}}",
+   "message": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"experimental\":{},\"prompts\":{\"listChanged\":false},\"resources\":{\"subscribe\":false,\"listChanged\":false},\"tools\":{\"listChanged\":false}},\"serverInfo\":{\"name\":\"sqlite\",\"version\":\"0.1.0\"}}}"
+  },
+  {
+   "probe": "H2.newer.initialized",
+   "request": "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
+  },
+  {
+   "probe": "H3.cold",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"}",
+   "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"Invalid request parameters\",\"data\":\"\"}}",
+   "message": "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"Invalid request parameters\",\"data\":\"\"}}"
+  },
+  {
+   "probe": "D1.discover",
+   "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"server/discover\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/clientCapabilities\":{},\"io.modelcontextprotocol/clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}",
+   "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"Invalid request parameters\",\"data\":\"\"}}",
+   "message": "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"Invalid request parameters\",\"data\":\"\"}}"
+  },
+  {
+   "probe": "G1.get",
+   "err": "not applicable on stdio"
+  }
+ ]
+}

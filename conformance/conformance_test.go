@@ -8,9 +8,11 @@ package conformance
 // recorded in PREDICATES.md and its capture is retained.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -347,5 +349,62 @@ func TestCheckLockEntryValidatesTheRecordedEra(t *testing.T) {
 		Protocol: surfacelock.Protocol{Offered: "2025-11-25", Era: "2025-11-25", Flow: "classic"}}
 	if _, err := CheckLockEntry(context.Background(), dead); err == nil {
 		t.Fatal("dead target passed its era claim")
+	}
+}
+
+// A truncated capture must never grade a violation: the wire exchange may
+// have been fine, and a cell may not rest on cut bytes (the tp-notion
+// resolution in PREDICATES.md).
+func TestTruncatedExchangeGradesUnreachedNeverViolation(t *testing.T) {
+	cp := &Capture{Target: "trunc", Kind: "stdio", Era: "2025-11-25", Exchanges: []*Exchange{
+		{Probe: "H1.init", Message: `{"result":{"protocolVersion":"2025-11-25","serverInfo":{"name":"x","version":"1"},"capabilities":{"tools":{}}}}`},
+		{Probe: "T1.page0", Body: `{"result":{"tools":[{"na`, Truncated: true},
+	}}
+	rep := Grade(cp)
+	c := cellOf(t, rep, "T1.tools")
+	if c.Outcome != Unreached {
+		t.Errorf("T1.tools on a truncated page = %s (%s), want unreached", c.Outcome, c.Evidence)
+	}
+}
+
+// A dual-era server (classic handshake AND a valid server/discover) is
+// spec-permitted: classic-era D1 flags it for cross-grading, never as a
+// violation — while a server "answering" discover without the DiscoverResult
+// shape still violates (the tp-context7 resolution in PREDICATES.md).
+func TestDualEraDiscoverIsObservedNotViolation(t *testing.T) {
+	dualEra := func(discover string) *Report {
+		inner := (&fakeClassic{}).handler()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, _ := readCappedBody(r)
+			var in struct {
+				ID     json.RawMessage `json:"id"`
+				Method string          `json:"method"`
+			}
+			_ = json.Unmarshal(body, &in)
+			if in.Method == "server/discover" {
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":%s}`, in.ID, discover)
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body)) // hand the fake an unconsumed body
+			inner.ServeHTTP(w, r)
+		}))
+		t.Cleanup(srv.Close)
+		rep, err := Check(context.Background(), "dual", NewHTTPDialer(srv.URL, srv.Client(), nil), "2025-11-25")
+		if err != nil {
+			t.Fatalf("Check: %v", err)
+		}
+		return rep
+	}
+	// This wrapper intercepts discover BEFORE the fake's session gate, which is
+	// exactly the dual-era shape: discover answers cold.
+	rep := dualEra(`{"supportedVersions":["2026-07-28"],"serverInfo":{"name":"dual","version":"1"},"capabilities":{}}`)
+	c := cellOf(t, rep, "D1.discover")
+	if c.Outcome != Observed || !strings.Contains(c.Evidence, "cross-grade") {
+		t.Errorf("valid dual-era discover = %s (%s), want obs with a cross-grade flag", c.Outcome, c.Evidence)
+	}
+	rep = dualEra(`{"echo":"server/discover"}`)
+	if c := cellOf(t, rep, "D1.discover"); c.Outcome != MustViolation {
+		t.Errorf("shapeless discover 'success' = %s (%s), want a MUST violation", c.Outcome, c.Evidence)
 	}
 }

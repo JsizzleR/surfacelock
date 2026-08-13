@@ -47,3 +47,4 @@ py-arxiv	stdio	2025-11-25	uvx --with mcp<2 arxiv-mcp-server==0.6.2 --storage-pat
 py-awsdocs	stdio	2025-11-25	uvx --with mcp<2 awslabs.aws-documentation-mcp-server==1.1.30	-	-
 py-blender	stdio	2025-11-25	uvx --with mcp<2 blender-mcp==1.8.0	-	-
 py-excel	stdio	2025-11-25	uvx --with mcp<2 excel-mcp-server==0.1.8 stdio	-	-
+tp-context7-modern	stdio	2026-07-28	npx -y @upstash/context7-mcp@4.0.2	-	-

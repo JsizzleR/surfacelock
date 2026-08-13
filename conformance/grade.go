@@ -59,11 +59,12 @@ type rpcView struct {
 	errMsg       string
 	isError      bool
 	isBatch      bool // response body is a JSON array
+	truncated    bool // the CAPTURE was cut; the wire may have been fine
 	raw          string
 }
 
 func viewOf(ex *Exchange) rpcView {
-	v := rpcView{status: ex.Status, raw: ex.Message}
+	v := rpcView{status: ex.Status, raw: ex.Message, truncated: ex.Truncated}
 	if ex.Err != "" {
 		v.transportErr = ex.Err
 	}
@@ -101,12 +102,19 @@ func (v rpcView) succeeded() bool {
 }
 
 // unreached: the target could not be spoken to at all (dial failure, HTTP
-// transport error, a stdio child that died mid-probe). An unreached exchange
-// grades UNREACHED, never a verdict — an unreachable server is an honest
-// error, not conformance evidence in either direction (the D-414/D-415 rule;
-// a dead target must grade UNGRADED, not NONCONFORMANT, and must never "pass"
-// a refusal predicate by being down).
-func (v rpcView) unreached() bool { return v.transportErr != "" && v.transportErr != errSilence }
+// transport error, a stdio child that died mid-probe) — OR the capture was
+// truncated in a way that prevented classification (the exchange may have
+// been fine on the wire; a graded cell must never silently rest on cut
+// bytes). An unreached exchange grades UNREACHED, never a verdict — an
+// unreachable server is an honest error, not conformance evidence in either
+// direction (the D-414/D-415 rule; a dead target must grade UNGRADED, not
+// NONCONFORMANT, and must never "pass" a refusal predicate by being down).
+func (v rpcView) unreached() bool {
+	if v.transportErr != "" && v.transportErr != errSilence {
+		return true
+	}
+	return v.truncated && v.result == nil && !v.isError
+}
 
 // refused: an INTENTIONAL refusal — HTTP 4xx/5xx, a JSON-RPC error, a 2xx
 // with no result, or silence from a live stdio child (a server that ignores an
@@ -121,6 +129,8 @@ func (v rpcView) summary() string {
 		return fmt.Sprintf("rpc error %d: %s", v.errCode, capString(v.errMsg, 120))
 	case v.result != nil:
 		return fmt.Sprintf("HTTP %d, result", v.status)
+	case v.truncated:
+		return fmt.Sprintf("HTTP %d, capture truncated before a message could be classified", v.status)
 	default:
 		return fmt.Sprintf("HTTP %d, no JSON-RPC message", v.status)
 	}
@@ -252,16 +262,25 @@ func gradeClassic(cap *Capture, r *Report) {
 		}
 	}
 
-	// D1 — discover must not succeed pre-stateless.
+	// D1 — discover on a classic-era target. A refusal is the era's own
+	// behavior; a SUCCESS carrying a valid DiscoverResult (supportedVersions)
+	// is a DUAL-ERA server, which the spec explicitly permits — flagged for
+	// cross-grading at its modern era, never a violation (the tp-context7
+	// resolution, PREDICATES.md). Success WITHOUT the discover shape is what
+	// the cell refuses: a server "answering" a method it does not implement.
 	if ex := missing(r, cap, "D1.discover"); ex != nil {
 		v := viewOf(ex)
 		switch {
 		case v.unreached():
 			r.cell("D1.discover", Unreached, "%s", v.summary())
-		case v.succeeded():
-			r.cell("D1.discover", MustViolation, "server/discover succeeded on a %s-era target", era)
-		default:
+		case !v.succeeded():
 			r.cell("D1.discover", Pass, "discover not served: %s", v.summary())
+		default:
+			if sup := resultStrings(ex.Message, "supportedVersions"); len(sup) > 0 {
+				r.cell("D1.discover", Observed, "dual-era server: discover advertises %v — cross-grade at its modern era", sup)
+			} else {
+				r.cell("D1.discover", MustViolation, "server/discover 'succeeded' on a %s-era target without a DiscoverResult shape", era)
+			}
 		}
 	}
 
@@ -405,7 +424,11 @@ func gradeStateless(cap *Capture, r *Report) {
 		}
 	}
 
-	// H1 — initialize must be refused.
+	// H1 — initialize is refused by a modern-ONLY server; a DUAL-ERA server
+	// MAY answer it (the compat matrix's "Legacy client → Dual-era server:
+	// Works" row) — a success carrying a valid initialize result is the
+	// legacy side of a dual-era server, observed, never a violation. The
+	// symmetric arm to classic-era D1 (PREDICATES.md, dual-era amendment).
 	if ex := missing(r, cap, "H1.init"); ex != nil {
 		v := viewOf(ex)
 		switch {
@@ -414,7 +437,11 @@ func gradeStateless(cap *Capture, r *Report) {
 		case v.refused():
 			r.cell("H1.init", Pass, "initialize refused: %s", v.summary())
 		default:
-			r.cell("H1.init", MustViolation, "the removed initialize handshake SUCCEEDED")
+			if got := resultString(ex.Message, "protocolVersion"); got != "" {
+				r.cell("H1.init", Observed, "dual-era server: initialize still answered, negotiating %s (legacy semantics, spec-permitted)", got)
+			} else {
+				r.cell("H1.init", MustViolation, "the removed initialize handshake SUCCEEDED without an initialize-result shape")
+			}
 		}
 	}
 
@@ -520,10 +547,15 @@ func gradeStateless(cap *Capture, r *Report) {
 		}
 	}
 
-	// R1 — resultType on every successful result. No successful result at all
-	// is unreached, never a pass (a vacuous sweep must be visible).
+	// R1 — resultType on every successful MODERN result. H1.init is excluded:
+	// when it succeeds the server answered a LEGACY handshake with legacy
+	// semantics (dual-era), and legacy results owe no resultType. No successful
+	// result at all is unreached, never a pass (a vacuous sweep must be visible).
 	succeeded, violated := 0, false
 	for _, ex := range cap.Exchanges {
+		if ex.Probe == "H1.init" {
+			continue
+		}
 		v := viewOf(ex)
 		if !v.succeeded() {
 			continue

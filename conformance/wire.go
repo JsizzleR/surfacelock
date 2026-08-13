@@ -30,9 +30,9 @@ import (
 // maxed at ~100 KiB per tools/list) and small enough that a hostile target
 // cannot run the prober out of memory.
 const (
-	maxBodyBytes    = 1 << 20  // per-response capture cap
-	maxSSEBytes     = 4 << 20  // whole-stream read cap while hunting the response event
-	maxCaptureBytes = 64 << 10 // per-exchange retained body (grading + artifact)
+	maxBodyBytes    = 1 << 20      // per-response capture cap
+	maxSSEBytes     = 4 << 20      // whole-stream read cap while hunting the response event
+	maxCaptureBytes = maxBodyBytes // per-exchange retained body: grading is over the CAPTURE, so it must hold everything the wire read admitted (a 64KiB cap truncated Notion's real tools/list and graded a fine exchange as a violation)
 	exchangeTimeout = 15 * time.Second
 	maxPages        = 8 // T1's stated page bound
 )
