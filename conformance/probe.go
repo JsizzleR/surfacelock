@@ -240,17 +240,28 @@ func probeStateless(ctx context.Context, cap *Capture, conn Conn, dial Dialer) {
 	defer conn.Close()
 	era := StatelessEra
 	meta := func() map[string]any { return metaEnvelope(era) }
+	// The client-side duties of a conformant stateless request over HTTP: the
+	// version rides the MCP-Protocol-Version header as well as _meta, and
+	// SEP-2243 requires Mcp-Method on Streamable HTTP POSTs (Mcp-Name names a
+	// target for named invocations, which this read-only prober never sends).
+	// Ignored by the stdio conn. PREDICATES.md "Stateless request headers".
+	hdrFor := func(method string) map[string]string {
+		return map[string]string{"MCP-Protocol-Version": era, "Mcp-Method": method}
+	}
 
 	// D1: server/discover with the full envelope.
-	ex := conn.Roundtrip(ctx, "D1.discover", marshalRPC(1, "server/discover", map[string]any{"_meta": meta()}), nil, 1)
+	ex := conn.Roundtrip(ctx, "D1.discover", marshalRPC(1, "server/discover", map[string]any{"_meta": meta()}), hdrFor("server/discover"), 1)
 	cap.Exchanges = append(cap.Exchanges, ex)
 	supported := resultStrings(ex.Message, "supportedVersions")
 
-	// D2: the same request with _meta ABSENT.
-	ex = conn.Roundtrip(ctx, "D2.nometa", marshalRPC(2, "server/discover", map[string]any{}), nil, 2)
+	// D2: the same request with _meta ABSENT (the headers stay conformant, so
+	// what is tested is the envelope's absence alone).
+	ex = conn.Roundtrip(ctx, "D2.nometa", marshalRPC(2, "server/discover", map[string]any{}), hdrFor("server/discover"), 2)
 	cap.Exchanges = append(cap.Exchanges, ex)
 
-	// H1: initialize must be refused post-SEP-2575.
+	// H1: initialize must be refused post-SEP-2575. Sent as a LEGACY client
+	// would send it (no modern headers): the cell's subject is the removed
+	// handshake, and a legacy client is exactly who would send it.
 	ex = conn.Roundtrip(ctx, "H1.init", marshalRPC(3, "initialize", map[string]any{
 		"protocolVersion": "2025-11-25",
 		"capabilities":    map[string]any{},
@@ -270,7 +281,7 @@ func probeStateless(ctx context.Context, cap *Capture, conn Conn, dial Dialer) {
 		if page == 0 {
 			probe = "H3.cold" // the same exchange grades both cells
 		}
-		ex := conn.Roundtrip(ctx, probe, marshalRPC(id, "tools/list", params), nil, id)
+		ex := conn.Roundtrip(ctx, probe, marshalRPC(id, "tools/list", params), hdrFor("tools/list"), id)
 		cap.Exchanges = append(cap.Exchanges, ex)
 		id++
 		cursor = resultString(ex.Message, "nextCursor")
@@ -279,12 +290,12 @@ func probeStateless(ctx context.Context, cap *Capture, conn Conn, dial Dialer) {
 		}
 	}
 
-	ex = conn.Roundtrip(ctx, "T2.badcursor", marshalRPC(id, "tools/list", map[string]any{"_meta": meta(), "cursor": invalidCursor}), nil, id)
+	ex = conn.Roundtrip(ctx, "T2.badcursor", marshalRPC(id, "tools/list", map[string]any{"_meta": meta(), "cursor": invalidCursor}), hdrFor("tools/list"), id)
 	cap.Exchanges = append(cap.Exchanges, ex)
 	id++
 
 	batch := "[" + string(marshalRPC(id, "tools/list", map[string]any{"_meta": meta()})) + "," + string(marshalRPC(id+1, "tools/list", map[string]any{"_meta": meta()})) + "]"
-	ex = conn.Roundtrip(ctx, "B1.batch", []byte(batch), nil, id)
+	ex = conn.Roundtrip(ctx, "B1.batch", []byte(batch), hdrFor("tools/list"), id)
 	cap.Exchanges = append(cap.Exchanges, ex)
 	id += 2
 
@@ -298,7 +309,8 @@ func probeStateless(ctx context.Context, cap *Capture, conn Conn, dial Dialer) {
 		}
 	}
 	if mismatch != "" {
-		ex = conn.Roundtrip(ctx, "V2.mismatch", marshalRPC(id, "tools/list", map[string]any{"_meta": metaEnvelope(mismatch)}), nil, id)
+		hdr := map[string]string{"MCP-Protocol-Version": mismatch, "Mcp-Method": "tools/list"}
+		ex = conn.Roundtrip(ctx, "V2.mismatch", marshalRPC(id, "tools/list", map[string]any{"_meta": metaEnvelope(mismatch)}), hdr, id)
 		cap.Exchanges = append(cap.Exchanges, ex)
 		id++
 	} else {

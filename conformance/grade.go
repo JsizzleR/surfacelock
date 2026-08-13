@@ -311,10 +311,16 @@ func gradeClassic(cap *Capture, r *Report) {
 		}
 	}
 
-	gradeToolsPages(cap, r, era)
-	gradeBadCursor(cap, r)
+	if hasToolsCapability(cap, "H1.init") {
+		gradeToolsPages(cap, r, era)
+		gradeBadCursor(cap, r)
+	} else {
+		naToolsCells(r, "T1.tools", "T2.badcursor")
+	}
 
 	// B1 — batching: 2025-03-26 MUST accept; 2025-06-18+ MUST refuse; 2024-11-05 OBS.
+	// Graded regardless of the tools capability: a batch must be handled AS A
+	// BATCH (accepted or refused per era) whatever its inner methods.
 	if ex := missing(r, cap, "B1.batch"); ex != nil {
 		v := viewOf(ex)
 		accepted := v.isBatch && (v.status == 0 || (v.status >= 200 && v.status <= 299))
@@ -412,8 +418,12 @@ func gradeStateless(cap *Capture, r *Report) {
 		}
 	}
 
-	// H3 — enveloped cold tools/list MUST succeed.
-	if ex := missing(r, cap, "H3.cold"); ex != nil {
+	toolsCapable := hasToolsCapability(cap, "D1.discover")
+
+	// H3 — enveloped cold tools/list MUST succeed (tools-capable servers only).
+	if !toolsCapable {
+		naToolsCells(r, "H3.cold")
+	} else if ex := missing(r, cap, "H3.cold"); ex != nil {
 		v := viewOf(ex)
 		switch {
 		case v.unreached():
@@ -451,8 +461,12 @@ func gradeStateless(cap *Capture, r *Report) {
 		r.cell("S2.nosession", NotApplicable, "stdio has no session header")
 	}
 
-	gradeToolsPages(cap, r, StatelessEra)
-	gradeBadCursor(cap, r)
+	if toolsCapable {
+		gradeToolsPages(cap, r, StatelessEra)
+		gradeBadCursor(cap, r)
+	} else {
+		naToolsCells(r, "T1.tools", "T2.badcursor")
+	}
 
 	// B1 — batch MUST be refused.
 	if ex := missing(r, cap, "B1.batch"); ex != nil {
@@ -468,8 +482,11 @@ func gradeStateless(cap *Capture, r *Report) {
 		}
 	}
 
-	// V2 — version mismatch.
-	if ex := cap.find("V2.mismatch"); ex == nil {
+	// V2 — version mismatch. The probe rides tools/list, so a tools-less
+	// server's -32601 is a method refusal, not version enforcement — na.
+	if !toolsCapable {
+		naToolsCells(r, "V2.mismatch")
+	} else if ex := cap.find("V2.mismatch"); ex == nil {
 		r.cell("V2.mismatch", Unreached, "%s", strings.Join(cap.Notes, "; "))
 	} else {
 		v := viewOf(ex)
@@ -486,7 +503,9 @@ func gradeStateless(cap *Capture, r *Report) {
 	}
 
 	// C1 — CacheableResult on tools/list.
-	if ex := cap.find("H3.cold"); ex != nil {
+	if !toolsCapable {
+		naToolsCells(r, "C1.cacheable")
+	} else if ex := cap.find("H3.cold"); ex != nil {
 		v := viewOf(ex)
 		if v.succeeded() {
 			_, hasTTL := v.result["ttlMs"]
@@ -626,6 +645,38 @@ func gradeBadCursor(cap *Capture, r *Report) {
 		r.cell("T2.badcursor", Pass, "invalid cursor refused: %s", v.summary())
 	default:
 		r.cell("T2.badcursor", ShouldViolation, "invalid cursor ACCEPTED (spec SHOULD refuse with -32602)")
+	}
+}
+
+// hasToolsCapability reads the era-authoritative identity exchange's
+// capabilities object. tools/list belongs to the `tools` capability: a server
+// not advertising it correctly refuses the method, and grading that refusal
+// as a violation would manufacture a finding out of the prober's own
+// inapplicable request (PREDICATES.md "Capability gating"). The zero answer
+// (no identity exchange, no capabilities member) is TRUE — an over-graded
+// tools server is a visible violation someone inspects, while an
+// under-graded one silently vanishes from the matrix.
+func hasToolsCapability(cap *Capture, probe string) bool {
+	ex := cap.find(probe)
+	if ex == nil {
+		return true
+	}
+	v := viewOf(ex)
+	if v.result == nil || v.result["capabilities"] == nil {
+		return true
+	}
+	var caps map[string]json.RawMessage
+	if json.Unmarshal(v.result["capabilities"], &caps) != nil {
+		return true
+	}
+	_, ok := caps["tools"]
+	return ok
+}
+
+// naToolsCells emits the tools-probed cells as na(no-tools-capability).
+func naToolsCells(r *Report, probes ...string) {
+	for _, p := range probes {
+		r.cell(p, NotApplicable, "na(no-tools-capability): the identity exchange advertises no tools capability")
 	}
 }
 

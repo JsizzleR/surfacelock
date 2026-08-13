@@ -87,7 +87,7 @@ func (f *fakeClassic) handler() http.Handler {
 				version = in.Params.ProtocolVersion
 			}
 			w.Header().Set("Mcp-Session-Id", fakeSession)
-			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":%q,"serverInfo":{"name":"ctrl","version":"1"},"capabilities":{}}}`, in.ID, version)
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":%q,"serverInfo":{"name":"ctrl","version":"1"},"capabilities":{"tools":{"listChanged":false}}}}`, in.ID, version)
 		case "notifications/initialized":
 			w.WriteHeader(http.StatusAccepted)
 		case "tools/list":
@@ -277,5 +277,53 @@ func TestMatrixRenderers(t *testing.T) {
 	md := RenderMatrixMD([]*Report{rep, dead})
 	if !strings.Contains(md, "UNGRADED") || !strings.Contains(md, "unreached") {
 		t.Errorf("MD hides the unreached target:\n%s", md)
+	}
+}
+
+// The capability gate (PREDICATES.md "Capability gating"): a resources-only
+// server — bastle's okffacade shape — must get na(no-tools-capability) on the
+// tools-probed cells, never violations manufactured from the prober's own
+// inapplicable tools/list. The other direction is CTRL-BAD above: a fake that
+// DOES advertise tools keeps its T1 defect flagged, so the gate cannot
+// swallow a real tools server's violation (the two directions mask each
+// other's mutants — each needs its own leg, D-400).
+func TestToolslessServerGetsNAToolsCellsNotViolations(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+			Params struct {
+				Meta map[string]json.RawMessage `json:"_meta"`
+			} `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if len(in.Params.Meta) < 2 {
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"error":{"code":-32602,"message":"missing _meta envelope"}}`, in.ID)
+			return
+		}
+		switch in.Method {
+		case "server/discover":
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":{"resultType":"complete","supportedVersions":["2026-07-28"],"serverInfo":{"name":"res-only","version":"1"},"capabilities":{"resources":{}}}}`, in.ID)
+		default:
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"unsupported method"}}`, in.ID)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	rep, err := Check(context.Background(), "res-only", NewHTTPDialer(srv.URL, srv.Client(), nil), StatelessEra)
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	for _, p := range []string{"H3.cold", "T1.tools", "T2.badcursor", "C1.cacheable", "V2.mismatch"} {
+		c := cellOf(t, rep, p)
+		if c.Outcome != NotApplicable {
+			t.Errorf("%s = %s (%s), want na(no-tools-capability)", p, c.Outcome, c.Evidence)
+		}
+	}
+	if rep.Verdict != Conformant {
+		t.Errorf("verdict = %s, want CONFORMANT for the conformant resources-only server; cells: %+v", rep.Verdict, rep.Cells)
 	}
 }

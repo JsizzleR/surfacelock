@@ -17,9 +17,11 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -36,9 +38,10 @@ func main() {
 	regrade := flag.Bool("regrade", false, "re-grade retained captures without probing")
 	only := flag.String("only", "", "probe only the target with this name")
 	budget := flag.Duration("budget", 2*time.Minute, "per-target probe budget")
+	insecure := flag.Bool("insecure", false, "skip TLS verification (a local daemon's self-signed cert; never a public target)")
 	flag.Parse()
 
-	if err := run(*targets, *captures, *out, *only, *regrade, *budget); err != nil {
+	if err := run(*targets, *captures, *out, *only, *regrade, *insecure, *budget); err != nil {
 		fmt.Fprintln(os.Stderr, "gen:", err)
 		os.Exit(1)
 	}
@@ -49,7 +52,7 @@ type target struct {
 	env                               []string
 }
 
-func run(targetsPath, capturesDir, outDir, only string, regrade bool, budget time.Duration) error {
+func run(targetsPath, capturesDir, outDir, only string, regrade, insecure bool, budget time.Duration) error {
 	if !regrade {
 		rows, err := readTargets(targetsPath)
 		if err != nil {
@@ -62,7 +65,7 @@ func run(targetsPath, capturesDir, outDir, only string, regrade bool, budget tim
 			if only != "" && t.name != only {
 				continue
 			}
-			if err := probeOne(t, capturesDir, budget); err != nil {
+			if err := probeOne(t, capturesDir, insecure, budget); err != nil {
 				// A probe failure is recorded, never silently skipped: the
 				// capture file carries the error and grades UNGRADED.
 				fmt.Fprintf(os.Stderr, "gen: %s@%s: %v (recorded)\n", t.name, t.era, err)
@@ -102,7 +105,7 @@ func readTargets(path string) ([]target, error) {
 	return out, nil
 }
 
-func probeOne(t target, capturesDir string, budget time.Duration) error {
+func probeOne(t target, capturesDir string, insecure bool, budget time.Duration) error {
 	var dial conformance.Dialer
 	switch t.kind {
 	case "http":
@@ -114,7 +117,13 @@ func probeOne(t target, capturesDir string, budget time.Duration) error {
 			}
 			static = map[string]string{"Authorization": "Bearer " + tok}
 		}
-		dial = conformance.NewHTTPDialer(t.address, nil, static)
+		var hc *http.Client
+		if insecure {
+			hc = &http.Client{Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			}}
+		}
+		dial = conformance.NewHTTPDialer(t.address, hc, static)
 	case "stdio":
 		dial = conformance.NewStdioDialer(strings.Fields(t.address), t.env)
 	}

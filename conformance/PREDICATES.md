@@ -164,6 +164,30 @@ targets: OBS. Era 2024-11-05: `na-hybrid` over Streamable HTTP.
 `serverInfo.name` and `.version` non-empty wherever the era surfaces them:
 SHOULD; recorded verbatim in the matrix either way.
 
+## Post-probe amendments (each dated; probing had begun, so each says so)
+
+- **Capability gating (2026-08-13, after the bastle-faces run).** `tools/list`
+  belongs to the `tools` capability; a server that does not advertise it
+  (bastle's okffacade is resources-only) correctly refuses the method with
+  -32601, and grading that refusal as a violation manufactures a finding out
+  of the prober's own inapplicable request. When the era-authoritative
+  identity exchange (D1's discover result, or H1's initialize result) carries
+  a `capabilities` object WITHOUT `tools`, the tools-probed cells — H3
+  (stateless), T1, T2, C1, V2 — grade `na(no-tools-capability)`. B1 stays
+  graded: a JSON-RPC batch must be refused as a batch regardless of the inner
+  methods. The statelessness/envelope/identity cells (D1, D2, H1, S2, R1, G1,
+  I1) are unaffected.
+- **Stateless request headers (2026-08-13, same run).** 2026-07-28 carries the
+  protocol version in the `MCP-Protocol-Version` header as well as `_meta`,
+  and requires `Mcp-Method` on Streamable HTTP POSTs (SEP-2243). The prober
+  now sends both on stateless-era HTTP requests (`Mcp-Name` names a target for
+  named invocations like `tools/call`, which this read-only harness never
+  sends). Without them, a strictly-validating server's refusal of the
+  prober's own non-conformant request would grade as a server violation — a
+  fabricated finding, the direction a measurement must never be wrong in. No
+  observed refusal in the runs so far was header-caused; the fix is fidelity,
+  not a regrade of existing evidence.
+
 ## Verdict model
 
 Per (target, era): **CONFORMANT** — every applicable MUST cell passed;
