@@ -169,7 +169,14 @@ their measured reason, like the toolslock-p0 corpus did.
   planted violations — (a) echoes any offered version verbatim (H2), (b) mints a
   session id but serves `tools/list` without it (S1), (c) accepts a JSON-RPC
   batch (B1), (d) duplicates a tool name across pages (T1). The harness MUST
-  report exactly these four MUST violations and no others.
+  surface all four and flag nothing else. *(Amended 2026-08-13, BEFORE any
+  real-target probe ran, to agree with H2's own rule above: planted (a) is a
+  verbatim echo, which H2 defers to cross-grading — so it MUST surface as the
+  H2 cross-grade flag plus a NONCONFORMANT verdict when the fake is graded at
+  the era it echoed, while (b)/(c)/(d) surface as MUST violations at the
+  claimed era. The fake refuses pre-handshake `tools/list` so that (b) isolates
+  to S1 without also tripping H3 — each planted defect gets its own cell, the
+  D-400 masking rule applied to the control itself.)*
 - **CTRL-GOOD** (hermetic, in-process): a fake implementing 2025-11-25 correctly
   — the harness MUST report CONFORMANT with zero violations.
 - **CTRL-SDK** (live): an official-SDK server (the toolslock-p0 recipe, SDK
