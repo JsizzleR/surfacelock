@@ -173,10 +173,10 @@ func (b *httpBackend) roundTrip(frame []byte, idRaw json.RawMessage, reqEra stri
 // response, a transport error frame is synthesized so the client is not left
 // waiting on nothing.
 func (b *httpBackend) relaySSE(body io.Reader, idRaw json.RawMessage) {
-	wantKeys := map[string]bool{}
+	wantKey := ""
 	if idRaw != nil {
-		for _, k := range responseIDKeys(idRaw) {
-			wantKeys[k] = true
+		if k, err := idKey(idRaw); err == nil {
+			wantKey = k
 		}
 	}
 	sawResponse := false
@@ -193,7 +193,7 @@ func (b *httpBackend) relaySSE(body io.Reader, idRaw json.RawMessage) {
 			var env map[string]json.RawMessage
 			if err := json.Unmarshal(frame, &env); err == nil {
 				if got, ok := env["id"]; ok {
-					if key, err := idKeyFor(got); err == nil && wantKeys[key] {
+					if key, err := idKey(got); err == nil && key == wantKey {
 						sawResponse = true
 					}
 				}

@@ -55,6 +55,12 @@ func newStdioBackend(target string, args, env []string, childStderr io.Writer) (
 }
 
 func (b *stdioBackend) readLoop(stdout io.Reader) {
+	// readLoop is the SOLE sender to b.frames, so it is the sole closer. Close it
+	// on EVERY exit — including the b.done branch — or a consumer ranging Frames()
+	// (Run's inbound goroutine) parks forever and Run hangs at teardown's
+	// <-inboundDone (measured: a chatty server at disconnect fills the buffer, the
+	// select takes the done branch, and the channel is never closed).
+	defer close(b.frames)
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 64<<10), relayFrameCap)
 	for sc.Scan() {
@@ -80,7 +86,6 @@ func (b *stdioBackend) readLoop(stdout io.Reader) {
 		b.err = err // the upstream died on its own; report it
 	}
 	b.mu.Unlock()
-	close(b.frames)
 }
 
 func (b *stdioBackend) Send(ctx context.Context, frame []byte) error {

@@ -132,6 +132,34 @@ func ClassifyTool(oldRaw, newRaw json.RawMessage) ([]Class, error) {
 	return classifyToolDrift(oldRaw, newRaw)
 }
 
+// SafetyOrDisplayChanged reports whether the drift between two tool versions
+// touched the tool's `annotations` (behavioral hints like readOnlyHint /
+// destructiveHint that steer whether a client asks for human confirmation) or a
+// human/model-visible `title` (top-level or inside annotations). An enforcement
+// point (the in-band proxy) treats these as prompt-text-equivalent: a flipped
+// destructiveHint changes what runs WITHOUT a human, and a title is text a model
+// may read — neither may ride a forward-non-prompt-text escape hatch. It is a
+// projection over the two objects, not a new drift Class (the SPEC severity
+// model is unchanged: these still classify as schema/metadata).
+func SafetyOrDisplayChanged(oldRaw, newRaw json.RawMessage) (bool, error) {
+	var oldV, newV any
+	if err := json.Unmarshal(oldRaw, &oldV); err != nil {
+		return false, err
+	}
+	if err := json.Unmarshal(newRaw, &newV); err != nil {
+		return false, err
+	}
+	oldObj, _ := oldV.(map[string]any)
+	newObj, _ := newV.(map[string]any)
+	if !reflect.DeepEqual(oldObj["annotations"], newObj["annotations"]) {
+		return true, nil
+	}
+	if !reflect.DeepEqual(oldObj["title"], newObj["title"]) {
+		return true, nil
+	}
+	return false, nil
+}
+
 // classifyToolDrift attributes the drift between two versions of the same tool.
 // h_tool already differs; the result is every class that applies, most severe first.
 func classifyToolDrift(oldRaw, newRaw json.RawMessage) ([]Class, error) {

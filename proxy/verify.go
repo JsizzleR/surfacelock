@@ -98,11 +98,19 @@ func (v *verifier) inadmissibleVerdict(what string, err error) verdict {
 
 // toolDrift is one drifted tool on a page.
 type toolDrift struct {
-	name    string
-	classes []surfacelock.Class
+	name            string
+	classes         []surfacelock.Class
+	safetyOrDisplay bool // annotations or title changed (proxy computes this per tool)
 }
 
+// hasNewPromptText reports whether this tool's drift introduces text the model
+// reads or a control over what runs without a human — description drift, an
+// added tool (all-new prompt text), OR a change to annotations/title. None of
+// these may ride the --warn escape hatch.
 func (d toolDrift) hasNewPromptText() bool {
+	if d.safetyOrDisplay {
+		return true
+	}
 	for _, c := range d.classes {
 		if c == surfacelock.ClassDescription || c == surfacelock.ClassAdded {
 			return true
@@ -194,6 +202,9 @@ func (v *verifier) verifyHandshake(flowObserved string, result json.RawMessage, 
 	lock := v.entry
 	var era string
 	var instrRaw json.RawMessage
+	eraDrift := "" // accumulates era/supportedVersions drift; NEVER an early return —
+	//               an early return before the instructions compare below is exactly
+	//               how poisoned instructions rode the --warn hatch (panel finding).
 
 	switch flowObserved {
 	case surfacelock.FlowClassic:
@@ -222,15 +233,17 @@ func (v *verifier) verifyHandshake(flowObserved string, result json.RawMessage, 
 					fmt.Errorf("supportedVersions is not a string array"))
 			}
 		}
-		var supportedOK bool
+		supportedOK := false
 		for _, s := range supported {
 			if s == era {
 				supportedOK = true
 			}
 		}
 		if !supportedOK {
-			return v.resolveDrift("server/discover", nil, false, false,
-				fmt.Sprintf("supportedVersions no longer includes the session era %q", era))
+			// Drift, not an early return: the instructions below are still admitted
+			// and compared, so a poisoned instructions string can never ride the
+			// --warn hatch behind an unsupported-era claim the attacker controls.
+			eraDrift = fmt.Sprintf("supportedVersions %v no longer includes the session era %q", supported, era)
 		}
 		instrRaw = obj["instructions"]
 	default:
@@ -238,13 +251,14 @@ func (v *verifier) verifyHandshake(flowObserved string, result json.RawMessage, 
 	}
 
 	flowMismatch := lock.Protocol.Flow != "" && lock.Protocol.Flow != flowObserved
-	eraDrift := ""
 	if era != lock.Protocol.Era {
 		eraDrift = fmt.Sprintf("session era %q, locked era %q (lock with --offer matching this client, or re-pin)", era, lock.Protocol.Era)
 	}
 
 	// Instructions ride Admit so the hostile-input rules (raw-byte UTF-8, string
-	// type, size cap, canonicalizability) are the same ones lock/verify apply.
+	// type, size cap, canonicalizability) are the same ones lock/verify apply. This
+	// ALWAYS runs, whatever the era/flow verdict — instructions are prompt text and
+	// their comparison must never be skipped.
 	adm, err := surfacelock.Admit(surfacelock.RawSurface{Offered: era, Era: era, Instructions: instrRaw}, v.lim)
 	if err != nil {
 		return v.inadmissibleVerdict("handshake instructions", err)
@@ -318,7 +332,13 @@ func (v *verifier) verifyToolsPage(en *enumeration, result json.RawMessage) (ver
 				return v.inadmissibleVerdict("tools/list page",
 					fmt.Errorf("tool %q cannot be classified: %v", t.Name, cerr)), ""
 			}
-			drifts = append(drifts, toolDrift{name: t.Name, classes: classes})
+			safety, serr := surfacelock.SafetyOrDisplayChanged(lt.Tool, t.Canon)
+			if serr != nil {
+				en.poisoned = true
+				return v.inadmissibleVerdict("tools/list page",
+					fmt.Errorf("tool %q cannot be classified: %v", t.Name, serr)), ""
+			}
+			drifts = append(drifts, toolDrift{name: t.Name, classes: classes, safetyOrDisplay: safety})
 		}
 	}
 

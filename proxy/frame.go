@@ -114,7 +114,7 @@ func parseFrame(raw []byte) (*frame, error) {
 	}
 	f := &frame{raw: raw, obj: obj}
 	if idRaw, ok := obj["id"]; ok && !isJSONNull(idRaw) {
-		key, err := idKeyFor(idRaw)
+		key, err := idKey(idRaw)
 		if err != nil {
 			return nil, err
 		}
@@ -145,39 +145,31 @@ func parseFrame(raw []byte) (*frame, error) {
 	return f, nil
 }
 
-// idKeyFor normalizes a JSON-RPC id to a pending-map key. Ids are matched by
-// exact token with one measured tolerance: some servers echo a numeric id back
-// as a string, so responseIDKeys returns both forms for a string id. An id that
-// is neither a string nor a number has no reliable identity and is refused.
-func idKeyFor(idRaw json.RawMessage) (string, error) {
+// idKey normalizes a JSON-RPC id to its SINGLE canonical pending-map key. The
+// normalization is what makes correlation safe: a numeric id and the same value
+// echoed back as a string (measured: real servers do this) MUST collapse to one
+// key, and — critically — two DISTINCT pending requests must never produce a key
+// an inbound response can match ambiguously. A string id whose contents are a
+// canonical JSON number is folded to the numeric key; every other string keeps
+// the string key. So a request id `1` and a request id `"1"` share the key
+// `n:1`, and the client-side duplicate-in-flight guard refuses the second —
+// there is never both `n:1` and `s:1` pending for one response to fall through
+// between (the bypass Codex@max found in the two-key scheme this replaces). An
+// id that is neither string nor number has no reliable identity and is refused.
+func idKey(idRaw json.RawMessage) (string, error) {
 	var num json.Number
 	if err := json.Unmarshal(idRaw, &num); err == nil {
 		return "n:" + num.String(), nil
 	}
 	var s string
 	if err := json.Unmarshal(idRaw, &s); err == nil {
+		var sn json.Number
+		if err := json.Unmarshal([]byte(s), &sn); err == nil && sn.String() == s {
+			return "n:" + s, nil // numeric-valued string id: fold to the numeric key
+		}
 		return "s:" + s, nil
 	}
 	return "", errors.New("frame id is not a string or number")
-}
-
-// responseIDKeys returns the pending-map keys an inbound response id may answer:
-// its own key, plus the numeric key when a server echoed a number back as a
-// string (measured: real servers do this; without the second lookup the response
-// would be unmatchable and its surface bytes would have to be dropped).
-func responseIDKeys(idRaw json.RawMessage) []string {
-	key, err := idKeyFor(idRaw)
-	if err != nil {
-		return nil
-	}
-	keys := []string{key}
-	if s, ok := strings.CutPrefix(key, "s:"); ok {
-		var num json.Number
-		if err := json.Unmarshal([]byte(s), &num); err == nil && num.String() == s {
-			keys = append(keys, "n:"+s)
-		}
-	}
-	return keys
 }
 
 func isJSONNull(raw json.RawMessage) bool {

@@ -443,20 +443,13 @@ func (c *core) handleServerFrame(line []byte) {
 	}
 
 	c.mu.Lock()
-	var p *pendingReq
-	var key string
-	for _, k := range responseIDKeys(f.idRaw) {
-		if got, ok := c.pending[k]; ok {
-			p, key = got, k
-			break
-		}
-	}
-	if p == nil {
+	p, ok := c.pending[f.idKey] // f.idKey is the single normalized key (frame.go idKey)
+	if !ok {
 		c.mu.Unlock()
 		c.finding("dropped unsolicited response (id not in flight)")
 		return
 	}
-	delete(c.pending, key)
+	delete(c.pending, f.idKey)
 
 	_, hasResult := f.obj["result"]
 	_, hasError := f.obj["error"]
@@ -514,7 +507,14 @@ func (c *core) handleServerFrame(line []byte) {
 			}
 		}
 	}
-	handshakeVerified := (p.method == "initialize") && !vd.refuse
+	classicVerified := (p.method == "initialize") && !vd.refuse
+	// A verified handshake of EITHER flow means the client's session is live and a
+	// server-initiated notifications/tools/list_changed can now arrive; open the
+	// upstream notification stream so it is relayed (and re-verified) rather than
+	// silently suppressed. SetProto is classic-only: the stateless flow names its
+	// dialect per request (cheapMetaEra), so there is no session-wide header to set.
+	notifStreamable := !vd.refuse && (p.method == "initialize" || p.method == "server/discover")
+	handshakeEra := c.v.handshakeEra // read under the lock; the backend calls below run after unlock
 	c.applyVerdictLocked(vd)
 	c.mu.Unlock()
 
@@ -522,10 +522,12 @@ func (c *core) handleServerFrame(line []byte) {
 		c.writeFrame(errorFrame(f.idRaw, vd.code, vd.msg))
 		return
 	}
-	if handshakeVerified {
+	if classicVerified {
 		if pa, ok := c.backend.(protoAware); ok {
-			pa.SetProto(c.v.handshakeEra)
+			pa.SetProto(handshakeEra)
 		}
+	}
+	if notifStreamable {
 		if ns, ok := c.backend.(notifStreamer); ok {
 			ns.StartNotificationStream()
 		}
