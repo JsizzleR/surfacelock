@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -312,15 +313,33 @@ func trimJSONSpace(b []byte) []byte {
 // or annotation `description`/`title` at any depth), versus the tool's own
 // top-level struct fields.
 var toolSensitiveKeys = []struct {
-	canon, lower string
-	deep         bool
+	canon string
+	deep  bool
 }{
-	{"name", "name", false},
-	{"description", "description", true},
-	{"title", "title", true},
-	{"inputSchema", "inputschema", false},
-	{"outputSchema", "outputschema", false},
-	{"annotations", "annotations", false},
+	{"name", false},
+	{"description", true},
+	{"title", true},
+	{"inputSchema", false},
+	{"outputSchema", false},
+	{"annotations", false},
+}
+
+// foldKey maps a member name to the case-fold normal form strings.EqualFold
+// compares by (the minimum of each rune's Unicode SimpleFold orbit). Two keys
+// share a foldKey iff EqualFold reports them equal — which is a SUPERSET of the
+// folds Go's encoding/json applies to struct field names (ASCII case plus U+017F
+// 'ſ'→s and U+212A Kelvin→k), so a collision this catches is at least as wide as
+// any a folding client could exploit. ToLower would miss the two non-ASCII folds.
+func foldKey(s string) string {
+	return strings.Map(func(r rune) rune {
+		min := r
+		for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+			if f < min {
+				min = f
+			}
+		}
+		return min
+	}, s)
 }
 
 // checkAliasedToolKeys refuses a tool object whose keys would make an exact-case
@@ -344,16 +363,16 @@ func walkAliasedKeys(v any, top bool) error {
 	case map[string]any:
 		seen := make(map[string]string, len(t))
 		for k := range t {
-			lk := strings.ToLower(k)
-			if prev, ok := seen[lk]; ok {
+			fk := foldKey(k)
+			if prev, ok := seen[fk]; ok {
 				return fmt.Errorf("has keys %q and %q that collide case-insensitively", prev, k)
 			}
-			seen[lk] = k
+			seen[fk] = k
 			for _, s := range toolSensitiveKeys {
 				if !top && !s.deep {
 					continue // tool's own fields: top level only (nested "name" may be data)
 				}
-				if k != s.canon && lk == s.lower {
+				if k != s.canon && strings.EqualFold(k, s.canon) {
 					return fmt.Errorf("has key %q, a case-variant of %q", k, s.canon)
 				}
 			}
