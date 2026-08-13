@@ -17,6 +17,23 @@ treats the tool surface like a dependency:
   most severe class, schema drift next, additive changes last.
 - **`surfacelock pin`** — explicit re-lock, so accepting a changed surface is a reviewed
   git diff.
+- **`surfacelock proxy`** — the in-band enforcement point: sits on the client path
+  (point your MCP client's stdio config at it; the upstream — stdio command or
+  Streamable HTTP URL — comes from the lockfile entry), forwards the session, and
+  verifies every surface-bearing response *this session* is served: the handshake
+  (era, negotiation flow, server instructions) and every `tools/list` page, including
+  re-lists after `notifications/tools/list_changed`. Drift is refused, never forwarded
+  — strict by default, with `--warn` forwarding non-prompt-text drift only (description
+  and instructions changes and added tools refuse even then). Drift, inadmissible
+  bytes, and transport failure are distinct refusals with distinct error codes and
+  remedies: an unreachable server is an honest error, never a drift verdict.
+
+```jsonc
+// where your MCP client config had:  {"command":"npx","args":["-y","some-mcp-server"]}
+// or:                                {"type":"http","url":"https://example.com/mcp"}
+// point it at the proxy instead:
+{"command":"surfacelock","args":["proxy","--file","/abs/path/tools.lock","--name","some-server"]}
+```
 
 Design premises:
 
