@@ -2,8 +2,10 @@ package conformance
 
 // The validity controls (PREDICATES.md): the harness's verdicts are void
 // without a deliberately non-conformant fake that FAILS its era's predicates
-// and a conformant one that PASSES. Both are in-process; the live SDK control
-// (CTRL-SDK) is in live_test.go behind the `live` build tag.
+// and a conformant one that PASSES. Both are in-process. The live SDK control
+// (CTRL-SDK) runs through `conformance/gen` against the official reference
+// server; its outcome — including the H3 predicate bug it caught — is
+// recorded in PREDICATES.md and its capture is retained.
 
 import (
 	"context"

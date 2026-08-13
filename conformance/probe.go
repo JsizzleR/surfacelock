@@ -176,7 +176,7 @@ func probeClassic(ctx context.Context, cap *Capture, conn Conn, dial Dialer, era
 		}
 	}
 
-	if versionHeader {
+	if versionHeader && conn.Kind() == "http" {
 		// V1's OBS half: the same call with the header explicitly suppressed.
 		hdr := map[string]string{"MCP-Protocol-Version": ""}
 		for k, v := range base {

@@ -1,0 +1,49 @@
+# Era-conformance corpus targets — generated from the toolslock-p0 corpus
+# (spikes/toolslock-p0/corpus.tsv) + each server's negotiated revision
+# (results.tsv proto column, measured 2026-08-12). Exclusions and their
+# measured reasons live in the spike corpus; controls are not corpus rows.
+# name	kind	era	address	env	auth_env
+deepwiki	http	2025-11-25	https://mcp.deepwiki.com/mcp	-	-
+context7-remote	http	2025-11-25	https://mcp.context7.com/mcp	-	-
+mslearn	http	2025-06-18	https://learn.microsoft.com/api/mcp	-	-
+cloudflare-docs	http	2025-11-25	https://docs.mcp.cloudflare.com/mcp	-	-
+huggingface	http	2025-11-25	https://huggingface.co/mcp	-	-
+astro-docs	http	2025-06-18	https://mcp.docs.astro.build/mcp	-	-
+coingecko	http	2025-11-25	https://mcp.api.coingecko.com/mcp	-	-
+gitmcp-mcp-repo	http	2025-03-26	https://gitmcp.io/modelcontextprotocol/modelcontextprotocol	-	-
+gitmcp-docs	http	2025-03-26	https://gitmcp.io/docs	-	-
+ref-everything	stdio	2025-11-25	npx -y @modelcontextprotocol/server-everything@2026.7.4	-	-
+ref-filesystem	stdio	2025-11-25	npx -y @modelcontextprotocol/server-filesystem@2026.7.10 /private/tmp/toolslock-fsroot	-	-
+ref-memory	stdio	2025-11-25	npx -y @modelcontextprotocol/server-memory@2026.7.4	-	-
+ref-seqthinking	stdio	2025-11-25	npx -y @modelcontextprotocol/server-sequential-thinking@2026.7.4	-	-
+ref-github	stdio	2024-11-05	npx -y @modelcontextprotocol/server-github@2025.4.8	GITHUB_PERSONAL_ACCESS_TOKEN=ghp_dummy	-
+ref-brave	stdio	2024-11-05	npx -y @modelcontextprotocol/server-brave-search@0.6.2	BRAVE_API_KEY=dummy	-
+ref-slack	stdio	2024-11-05	npx -y @modelcontextprotocol/server-slack@2025.4.25	SLACK_BOT_TOKEN=xoxb-dummy||SLACK_TEAM_ID=T0000000	-
+ref-gmaps	stdio	2024-11-05	npx -y @modelcontextprotocol/server-google-maps@0.6.2	GOOGLE_MAPS_API_KEY=dummy	-
+ref-postgres	stdio	2024-11-05	npx -y @modelcontextprotocol/server-postgres@0.6.2 postgresql://localhost:5999/dummy	-	-
+ref-puppeteer	stdio	2024-11-05	npx -y @modelcontextprotocol/server-puppeteer@2025.5.12	-	-
+ref-gitlab	stdio	2024-11-05	npx -y @modelcontextprotocol/server-gitlab@2025.4.25	GITLAB_PERSONAL_ACCESS_TOKEN=glpat-dummy	-
+ref-everart	stdio	2024-11-05	npx -y @modelcontextprotocol/server-everart@0.6.2	EVERART_API_KEY=dummy	-
+ref-awskb	stdio	2024-11-05	npx -y @modelcontextprotocol/server-aws-kb-retrieval@0.6.2	AWS_ACCESS_KEY_ID=AKIADUMMY||AWS_SECRET_ACCESS_KEY=dummy||AWS_REGION=us-east-1	-
+tp-playwright	stdio	2025-11-25	npx -y @playwright/mcp@0.0.79	-	-
+tp-context7	stdio	2025-11-25	npx -y @upstash/context7-mcp@4.0.2	-	-
+tp-notion	stdio	2025-11-25	npx -y @notionhq/notion-mcp-server@2.5.1	NOTION_TOKEN=ntn_dummy||OPENAPI_MCP_HEADERS={"Authorization":"Bearer ntn_dummy","Notion-Version":"2022-06-28"}	-
+tp-exa	stdio	2025-11-25	npx -y exa-mcp-server@3.4.0	EXA_API_KEY=dummy	-
+tp-tavily	stdio	2025-11-25	npx -y tavily-mcp@0.2.22	TAVILY_API_KEY=tvly-dev-dummy	-
+tp-firecrawl	stdio	2025-11-25	npx -y firecrawl-mcp@3.24.0	FIRECRAWL_API_KEY=fc-dummy	-
+tp-airbnb	stdio	2025-11-25	npx -y @openbnb/mcp-server-airbnb@0.3.0	-	-
+tp-ea-playwright	stdio	2025-11-25	npx -y @executeautomation/playwright-mcp-server@1.0.12	-	-
+tp-desktop-cmd	stdio	2025-11-25	npx -y @wonderwhy-er/desktop-commander@0.2.47	-	-
+tp-kubernetes	stdio	2025-11-25	npx -y mcp-server-kubernetes@4.1.4	-	-
+py-fetch	stdio	2025-11-25	uvx --with mcp<2 mcp-server-fetch==2026.7.10	-	-
+py-git	stdio	2025-11-25	uvx --with mcp<2 mcp-server-git==2026.7.10	-	-
+py-time	stdio	2025-11-25	uvx --with mcp<2 mcp-server-time==2026.7.10	-	-
+py-sqlite	stdio	2025-11-25	uvx --with mcp<2 mcp-server-sqlite==2025.4.25 --db-path /private/tmp/toolslock-sqlite.db	-	-
+py-sentry	stdio	2025-11-25	uvx --with mcp<2 mcp-server-sentry==2025.1.14 --auth-token dummytoken	-	-
+py-markitdown	stdio	2024-11-05	uvx --with mcp<2 markitdown-mcp==0.0.1a4	-	-
+py-calculator	stdio	2025-11-25	uvx --with mcp<2 mcp-server-calculator==0.2.1	-	-
+py-ddg	stdio	2025-11-25	uvx --with mcp<2 duckduckgo-mcp-server==0.6.1	-	-
+py-arxiv	stdio	2025-11-25	uvx --with mcp<2 arxiv-mcp-server==0.6.2 --storage-path /private/tmp/toolslock-arxiv	-	-
+py-awsdocs	stdio	2025-11-25	uvx --with mcp<2 awslabs.aws-documentation-mcp-server==1.1.30	-	-
+py-blender	stdio	2025-11-25	uvx --with mcp<2 blender-mcp==1.8.0	-	-
+py-excel	stdio	2025-11-25	uvx --with mcp<2 excel-mcp-server==0.1.8 stdio	-	-

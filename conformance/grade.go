@@ -235,20 +235,20 @@ func gradeClassic(cap *Capture, r *Report) {
 		}
 	}
 
-	// H3 — lifecycle order.
+	// H3 — lifecycle order: OBS on classic eras. The spec's pre-init constraint
+	// binds the CLIENT ("the client SHOULD NOT send requests …"); no revision
+	// imposes a server-side refusal duty — the CTRL-SDK control caught the
+	// original MUST cell grading a client obligation against servers
+	// (PREDICATES.md, resolution recorded 2026-08-13).
 	if ex := missing(r, cap, "H3.cold"); ex != nil {
 		v := viewOf(ex)
-		force := ShouldViolation // pre-2025-06-18: lifecycle was SHOULD
-		if era == "2025-06-18" || era == "2025-11-25" {
-			force = MustViolation
-		}
 		switch {
 		case v.unreached():
 			r.cell("H3.cold", Unreached, "%s", v.summary())
 		case v.refused():
-			r.cell("H3.cold", Pass, "pre-handshake tools/list refused: %s", v.summary())
+			r.cell("H3.cold", Observed, "pre-handshake tools/list refused: %s", v.summary())
 		default:
-			r.cell("H3.cold", force, "pre-handshake tools/list SERVED (lifecycle order not enforced)")
+			r.cell("H3.cold", Observed, "pre-handshake tools/list served (no gate; conformant either way)")
 		}
 	}
 

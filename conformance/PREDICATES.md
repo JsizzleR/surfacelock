@@ -71,11 +71,22 @@ Era 2026-07-28: N/A (no handshake; the stateless mismatch arm is V2).
 
 ### H3 — lifecycle order
 `tools/list` before any handshake, on a fresh session/connection carrying no
-session id. Eras 2025-06-18, 2025-11-25: MUST be refused (lifecycle operation is
-MUST since 2025-06-18; over HTTP the measured SDK shape refuses at the session
-gate). Eras 2024-11-05, 2025-03-26: SHOULD be refused (lifecycle was SHOULD).
-Era 2026-07-28: MUST SUCCEED given a well-formed `_meta` envelope (statelessness
-is the point — there is no handshake to order against).
+session id. Classic eras: **OBS** — record whether the server gates; refusing
+and serving are BOTH conformant. Era 2026-07-28: MUST SUCCEED given a
+well-formed `_meta` envelope (statelessness is the point — there is no
+handshake to order against).
+
+*(Resolved 2026-08-13 via the CTRL-SDK control, exactly the flow this document
+pre-registered: the original cell graded classic-era pre-handshake serving as a
+MUST/SHOULD violation, and the official reference server
+`server-everything@2026.7.4` served a pre-handshake `tools/list` over stdio.
+The spec's own text — 2025-06-18 lifecycle, read verbatim — puts the pre-init
+constraint on the SENDER ("The **client** SHOULD NOT send requests … before
+the server has responded to the `initialize` request"); no revision imposes a
+server-side refusal duty, and the HTTP SDKs' "Missing session ID" refusal is a
+session-transport artifact (S1's cell), not lifecycle enforcement. The
+original cell graded a client obligation against servers — a harness bug, per
+the control's presumption, fixed by demoting classic-era H3 to OBS.)*
 
 ### D1 — server/discover, cold
 `server/discover` with the full mandatory `_meta` envelope. Era 2026-07-28: MUST
