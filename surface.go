@@ -301,21 +301,36 @@ func trimJSONSpace(b []byte) []byte {
 	})
 }
 
-// toolSensitiveKeys are the tool-object member names this package reads by exact,
+// toolSensitiveKeys are tool-object member names this package reads by exact,
 // case-sensitive name (h_desc / h_schema / h_tool, name matching and sorting) and
 // that a client also reads. A case-variant of one of these is an aliasing attack:
 // surfacelock hashes/classifies the exact-case spelling while a client whose JSON
 // decoder folds field names last-wins (Go's encoding/json into a struct) reads the
 // variant — an injection ("Description") or identity ("Name") channel that hashes
-// clean. "description" is sensitive at ANY depth because per-property schema
-// descriptions are prompt text collected by exact name; the rest are the tool's own
-// top-level fields.
-var toolSensitiveKeys = []string{"name", "description", "title", "inputSchema", "outputSchema", "annotations"}
+// clean. `canon` is the exact spelling (the exclusion), `lower` its ASCII fold;
+// `deep` marks the keys that carry model-read TEXT wherever they appear (a schema
+// or annotation `description`/`title` at any depth), versus the tool's own
+// top-level struct fields.
+var toolSensitiveKeys = []struct {
+	canon, lower string
+	deep         bool
+}{
+	{"name", "name", false},
+	{"description", "description", true},
+	{"title", "title", true},
+	{"inputSchema", "inputschema", false},
+	{"outputSchema", "outputschema", false},
+	{"annotations", "annotations", false},
+}
 
-// checkAliasedToolKeys refuses a tool object that carries a case-variant of any
-// sensitive key (SPEC.md §6). The same EqualFold discipline DecodeExact and Admit
-// apply to handshake and page keys, extended into the tool object — the one place
-// the D-346 shape had no guard.
+// checkAliasedToolKeys refuses a tool object whose keys would make an exact-case
+// reader (this package) and a case-folding reader (a client's encoding/json into
+// a struct) disagree — the D-346 shape, INSIDE the tool object, where the page
+// and handshake guards do not reach (SPEC.md §6). At ANY depth it refuses two
+// keys that collide case-insensitively (an unresolvable ambiguity for any folding
+// consumer) and a lone case-variant of `description`/`title` (prompt text the
+// model reads anywhere); at the tool's top level it also refuses a lone variant
+// of the tool's own struct-decoded fields.
 func checkAliasedToolKeys(rawTool json.RawMessage) error {
 	var v any
 	if err := json.Unmarshal(rawTool, &v); err != nil {
@@ -327,13 +342,19 @@ func checkAliasedToolKeys(rawTool json.RawMessage) error {
 func walkAliasedKeys(v any, top bool) error {
 	switch t := v.(type) {
 	case map[string]any:
+		seen := make(map[string]string, len(t))
 		for k := range t {
+			lk := strings.ToLower(k)
+			if prev, ok := seen[lk]; ok {
+				return fmt.Errorf("has keys %q and %q that collide case-insensitively", prev, k)
+			}
+			seen[lk] = k
 			for _, s := range toolSensitiveKeys {
-				if !top && s != "description" {
-					continue // name/title/schema/annotations are tool fields: top level only
+				if !top && !s.deep {
+					continue // tool's own fields: top level only (nested "name" may be data)
 				}
-				if k != s && strings.EqualFold(k, s) {
-					return fmt.Errorf("key %q is a case-variant of %q", k, s)
+				if k != s.canon && lk == s.lower {
+					return fmt.Errorf("has key %q, a case-variant of %q", k, s.canon)
 				}
 			}
 		}

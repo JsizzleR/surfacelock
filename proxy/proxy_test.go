@@ -1185,3 +1185,34 @@ func TestFindingsSinkBlockedDoesNotStallVerification(t *testing.T) {
 		t.Fatal("Run did not finish after the sink was released")
 	}
 }
+
+func TestIdNumericSpellingsCollapseToOneKey(t *testing.T) {
+	// Codex re-verify Q5: ids 5 and 5.0 must share one pending key — a client
+	// comparing ids by value treats them as equal, so distinct keys would let a
+	// response for one correlate to the other's pending request unverified.
+	entry := entryFor(t, eraClassic, surfacelock.FlowClassic, "", toolA)
+	h := newHarness(t, entry, false)
+	classicHandshake(h, "")
+	// A ping with id 5 (non-surface), then a tools/list with id 5.0 must be
+	// refused as a duplicate in-flight id (same normalized key n:5).
+	h.client(`{"jsonrpc":"2.0","id":5,"method":"ping"}`)
+	h.expectUpstream()
+	h.client(`{"jsonrpc":"2.0","id":5.0,"method":"tools/list"}`)
+	code, _ := errorCodeOf(t, h.expectClient())
+	if code != codeProxyRefused {
+		t.Fatalf("id 5.0 colliding with pending id 5 must be refused, got %d", code)
+	}
+	// The server's answer to id 5 (the ping) forwards verbatim (non-surface).
+	h.inject(`{"jsonrpc":"2.0","id":5,"result":{}}`)
+	if got := h.expectClient(); !bytes.Contains(got, []byte(`"id":5`)) {
+		t.Fatalf("ping response should forward: %s", got)
+	}
+	// A poisoned frame with id 5.0 must NOT correlate to anything (n:5 consumed) —
+	// dropped, never forwarded unverified.
+	h.inject(fmt.Sprintf(`{"jsonrpc":"2.0","id":5.0,"result":{"tools":[%s]}}`, toolADrifted))
+	h.inject(`{"jsonrpc":"2.0","method":"notifications/marker"}`)
+	if got := h.expectClient(); !bytes.Contains(got, []byte("notifications/marker")) {
+		t.Fatalf("a numerically-aliased response must be dropped: %s", got)
+	}
+	h.finish()
+}

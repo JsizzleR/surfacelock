@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/JsizzleR/surfacelock"
 )
 
 // A frame is one JSON-RPC message crossing the proxy in either direction. Both
@@ -157,19 +159,37 @@ func parseFrame(raw []byte) (*frame, error) {
 // between (the bypass Codex@max found in the two-key scheme this replaces). An
 // id that is neither string nor number has no reliable identity and is refused.
 func idKey(idRaw json.RawMessage) (string, error) {
+	// json.Number accepts BOTH a bare number (42) and a quoted numeric string
+	// ("42") — the latter is how a server echoes a numeric id back — and yields
+	// the unquoted numeric value either way, while rejecting a non-numeric string.
+	// Canonicalizing that value folds 5, 5.0, 5e0, and "5" into ONE key: a client
+	// comparing ids by numeric value treats them as equal, so distinct keys would
+	// let a response correlate to a different pending request than the client does.
 	var num json.Number
 	if err := json.Unmarshal(idRaw, &num); err == nil {
-		return "n:" + num.String(), nil
+		return "n:" + canonNumberKey(json.RawMessage(num.String())), nil
 	}
 	var s string
 	if err := json.Unmarshal(idRaw, &s); err == nil {
-		var sn json.Number
-		if err := json.Unmarshal([]byte(s), &sn); err == nil && sn.String() == s {
-			return "n:" + s, nil // numeric-valued string id: fold to the numeric key
-		}
 		return "s:" + s, nil
 	}
 	return "", errors.New("frame id is not a string or number")
+}
+
+// canonNumberKey returns the RFC-8785/ES6 canonical form of a numeric id so that
+// numerically-equal spellings — 5, 5.0, 5e0, 5.00 — share ONE key (a client that
+// compares ids by numeric value treats them as equal; distinct keys would let a
+// response correlate to a different pending request than the client routes it to).
+// The >2^53 collapse RFC 8785 documents applies: two absurdly large integer ids
+// that differ below a double's precision share a key, so the second in-flight
+// request is refused as a duplicate — fail-closed, never a mis-correlation. Falls
+// back to the literal only if canonicalization somehow fails (it does not for a
+// value json already parsed as a number).
+func canonNumberKey(raw json.RawMessage) string {
+	if canon, err := surfacelock.Canonicalize(raw); err == nil {
+		return string(canon)
+	}
+	return string(raw)
 }
 
 func isJSONNull(raw json.RawMessage) bool {
