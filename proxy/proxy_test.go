@@ -892,3 +892,39 @@ func TestRefusalSanitizesHostileToolNames(t *testing.T) {
 	}
 	h.finish()
 }
+
+func TestWarnDriftedPageThenCleanFinalPageNoFalseCorruption(t *testing.T) {
+	// Regression: a warn-forwarded drifted page puts unlocked tool hashes into
+	// the enumeration; a later clean FINAL page must complete without a clean-
+	// surface claim — and without misreporting the rollup mismatch as lockfile
+	// corruption (the false-refusal direction).
+	entry := entryFor(t, eraClassic, surfacelock.FlowClassic, "", toolA, toolB)
+	h := newHarness(t, entry, true)
+	classicHandshake(h, "")
+	h.client(listReq(1, ""))
+	h.expectUpstream()
+	h.inject(listResult(1, "cur-1", toolASchema)) // schema drift: warned, forwarded
+	if got := h.expectClient(); !bytes.Contains(got, []byte("properties")) {
+		t.Fatalf("warned page not forwarded: %s", got)
+	}
+	h.client(listReq(2, "cur-1"))
+	h.expectUpstream()
+	h.inject(listResult(2, "", toolB)) // clean final page
+	if got := h.expectClient(); !bytes.Contains(got, []byte("beta")) {
+		t.Fatalf("clean final page must forward, got: %s", got)
+	}
+	out := h.finish()
+	if !out.Drift {
+		t.Fatal("warned drift must count as drift")
+	}
+	if out.Inadmissible {
+		t.Fatal("a warned enumeration's rollup mismatch is not corruption")
+	}
+	f := h.findings.String()
+	if strings.Contains(f, "matches lock") {
+		t.Fatalf("a warned enumeration must not claim a clean surface:\n%s", f)
+	}
+	if !strings.Contains(f, "no clean-surface claim") {
+		t.Fatalf("warned completion must disclose itself:\n%s", f)
+	}
+}

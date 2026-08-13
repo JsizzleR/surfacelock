@@ -44,6 +44,7 @@ type enumeration struct {
 	era      string
 	orphan   bool // continuation of a cursor the proxy never saw issued
 	poisoned bool // a page was refused; no completion verdict can follow
+	warned   bool // drift was warn-forwarded into this enumeration; no clean claim can follow
 	complete bool
 
 	seenCursors map[string]bool
@@ -356,7 +357,8 @@ func (v *verifier) verifyToolsPage(en *enumeration, result json.RawMessage) (ver
 			return vd, ""
 		}
 		// Warn-forwarded drift: the enumeration keeps going but can never earn a
-		// clean completion claim.
+		// clean completion claim — a later clean page must not read as one.
+		en.warned = true
 		if complete {
 			en.complete = true
 			vd.findings = append(vd.findings, fmt.Sprintf(
@@ -373,6 +375,14 @@ func (v *verifier) verifyToolsPage(en *enumeration, result json.RawMessage) (ver
 		return forwardVerdict(fmt.Sprintf(
 			"verified partial tools/list (unknown cursor): %d tools, per-tool verdicts only — no completeness claim", len(en.names))), ""
 	}
+	// An enumeration that carried warn-forwarded drift, or that runs under a
+	// warn-forwarded era, holds tools the lock does not: its rollup CANNOT match
+	// and its completion must not claim a clean surface (nor may the mismatch be
+	// misreported as corruption).
+	if en.warned || en.era != v.entry.Protocol.Era {
+		return forwardVerdict(fmt.Sprintf(
+			"tools/list complete under warned drift: %d tools, era %s — no clean-surface claim", len(en.names), en.era)), ""
+	}
 
 	// Everything individually verified equal; the rollup is the belt-and-braces
 	// restatement, and it must agree — a clean claim over disagreeing hashes is
@@ -382,7 +392,7 @@ func (v *verifier) verifyToolsPage(en *enumeration, result json.RawMessage) (ver
 	if err != nil {
 		return v.inadmissibleVerdict("tools/list rollup", err), ""
 	}
-	if en.era == v.entry.Protocol.Era && hash != v.entry.SurfaceHash {
+	if hash != v.entry.SurfaceHash {
 		en.poisoned = true
 		return v.inadmissibleVerdict("tools/list rollup",
 			fmt.Errorf("recomputed surface_hash disagrees with the lock despite per-tool matches")), ""
