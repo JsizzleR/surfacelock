@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/JsizzleR/surfacelock"
@@ -27,13 +26,11 @@ const DefaultOfferedVersion = ModernRevision
 // populations are disjoint, so one flow cannot serve both).
 const ModernRevision = "2026-07-28"
 
-// Fetch flows (SPEC.md §3.4), recorded in the lockfile entry so a verifier
-// reproduces the flow the lock was taken over — an unrecorded flow would let a
-// replacement server that speaks only the OTHER flow serve the locked bytes
-// and pass verification while the negotiation path silently changed.
+// Fetch flows (SPEC.md §3.4), aliased from the root package (the format
+// authority), kept here so existing callers keep compiling.
 const (
-	FlowStateless = "stateless"
-	FlowClassic   = "classic"
+	FlowStateless = surfacelock.FlowStateless
+	FlowClassic   = surfacelock.FlowClassic
 )
 
 const closeTimeout = 5 * time.Second
@@ -171,30 +168,11 @@ func metaEnvelope(offered string) map[string]any {
 	}
 }
 
-// resultFields decodes a JSON-RPC result object with EXACT keys. It refuses a
-// result that (a) is not canonicalizable — which catches duplicate keys at any
-// depth — or (b) carries a case-variant alias of any consumed key: encoding/json
-// struct decoding matches case-insensitively last-wins, so
-// {"instructions":"I","INSTRUCTIONS":"K"} would hash K while an exact-case
-// consumer reads I — a parser-differential that lets one (era, hash) pair cover
-// two different prompt-bearing surfaces (the D-346 shape, found by Codex@max on
-// this diff; the same guard already exists for the "tools" page key in Admit).
+// resultFields decodes a JSON-RPC result object with EXACT keys — the shared
+// surfacelock.DecodeExact discipline (duplicate keys refused via canonicalization,
+// case-variant aliases of consumed keys refused; the D-346 shape).
 func resultFields(raw json.RawMessage, what string, keys ...string) (map[string]json.RawMessage, error) {
-	if _, err := surfacelock.Canonicalize(raw); err != nil {
-		return nil, fmt.Errorf("%s: result is not canonicalizable: %v", what, err)
-	}
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &obj); err != nil {
-		return nil, fmt.Errorf("%s: bad result: %w", what, err)
-	}
-	for k := range obj {
-		for _, want := range keys {
-			if k != want && strings.EqualFold(k, want) {
-				return nil, fmt.Errorf("%s: result carries a case-variant of %q: %q", what, want, k)
-			}
-		}
-	}
-	return obj, nil
+	return surfacelock.DecodeExact(raw, what, keys...)
 }
 
 // fetchModern is the stateless flow: server/discover for the surface's

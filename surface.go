@@ -170,6 +170,12 @@ func Admit(raw RawSurface, lim Limits) (*Surface, error) {
 			if k != "tools" && strings.EqualFold(k, "tools") {
 				return nil, inadmissible("page %d has a case-variant of the \"tools\" key: %q", pi+1, k)
 			}
+			// nextCursor gets the same rule: a case-variant would let a sloppy-decoder
+			// client continue an enumeration that an exact-case verifier believed
+			// complete, so its completeness verdict would cover a truncated surface.
+			if k != "nextCursor" && strings.EqualFold(k, "nextCursor") {
+				return nil, inadmissible("page %d has a case-variant of the \"nextCursor\" key: %q", pi+1, k)
+			}
 		}
 		var pageTools []json.RawMessage
 		if raw, ok := obj["tools"]; ok && !isNull(raw) {

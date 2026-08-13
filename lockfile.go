@@ -20,6 +20,15 @@ func badLockfile(format string, args ...any) error {
 // LockfileVersion is the format version this package reads and writes.
 const LockfileVersion = 1
 
+// Fetch flows (SPEC.md §3.4). Recorded in protocol.flow and honored by
+// verifiers: an unrecorded flow would let a replacement server that speaks only
+// the OTHER flow serve the locked bytes and pass verification while the
+// negotiation path silently changed.
+const (
+	FlowStateless = "stateless"
+	FlowClassic   = "classic"
+)
+
 // Lockfile is the tools.lock document (SPEC.md §3).
 type Lockfile struct {
 	LockfileVersion int                    `json:"lockfile_version"`

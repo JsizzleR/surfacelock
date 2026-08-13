@@ -123,6 +123,15 @@ func Diff(old *ServerLock, live *Surface) (*SurfaceDiff, error) {
 	return d, nil
 }
 
+// ClassifyTool attributes the drift between two versions of the same tool (both
+// canonical tool objects), for callers that verify per-response rather than
+// per-surface — the in-band proxy sees one tools/list page at a time and cannot
+// build a full Surface before it must decide whether to forward. The result is
+// every class that applies, most severe first, and is never empty.
+func ClassifyTool(oldRaw, newRaw json.RawMessage) ([]Class, error) {
+	return classifyToolDrift(oldRaw, newRaw)
+}
+
 // classifyToolDrift attributes the drift between two versions of the same tool.
 // h_tool already differs; the result is every class that applies, most severe first.
 func classifyToolDrift(oldRaw, newRaw json.RawMessage) ([]Class, error) {

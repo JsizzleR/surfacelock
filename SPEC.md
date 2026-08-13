@@ -284,11 +284,15 @@ produces a drift verdict.
   uncanonicalizable, hence inadmissible. An implementation whose canonicalizer
   tolerates duplicate keys MUST refuse them itself — decoder last-key-wins semantics
   would let a tool present one value to the hash and another to a consumer.
-- **Case-variant collisions on the `tools` page key** — `{"tools":[…],"TOOLS":[…]}` has
-  two DISTINCT members to a canonicalizer (so it survives the duplicate-key rule), but
-  a decoder that matches object keys case-insensitively (Go's `encoding/json` does)
-  would silently pick one. An implementation MUST read the `tools` array by an exact,
-  case-sensitive key and refuse a page carrying any case-variant of it.
+- **Case-variant collisions on the `tools` or `nextCursor` page keys** —
+  `{"tools":[…],"TOOLS":[…]}` has two DISTINCT members to a canonicalizer (so it
+  survives the duplicate-key rule), but a decoder that matches object keys
+  case-insensitively (Go's `encoding/json` does) would silently pick one. An
+  implementation MUST read the `tools` array by an exact, case-sensitive key and
+  refuse a page carrying any case-variant of it. `nextCursor` gets the same rule: a
+  case-variant cursor key could let a sloppy-decoder client continue an enumeration
+  that an exact-case verifier believed complete, so a completeness verdict would
+  cover a truncated surface.
 - **Uncanonicalizable JSON** — any value RFC 8785 cannot transform (e.g. numbers outside
   IEEE-754 double range, lone surrogate escapes). Fail closed; never approximate.
   Stated bound, inherent to RFC 8785's ES6 number serialization: integers of magnitude

@@ -10,14 +10,16 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
-	"unicode"
 
 	"github.com/JsizzleR/surfacelock"
 	"github.com/JsizzleR/surfacelock/client"
+	"github.com/JsizzleR/surfacelock/proxy"
 )
 
 // SPEC.md §9 exit codes. "The surface changed" and "there is no surface to judge"
@@ -32,7 +34,7 @@ const (
 )
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
 const usage = `usage: surfacelock <command> [flags] [target]
@@ -42,6 +44,7 @@ commands:
   verify  re-fetch every entry (or --name one) and fail on drift   [CI verb]
   diff    like verify, but report per-tool, severity-classified
   pin     re-fetch and rewrite an existing entry (explicit re-lock)
+  proxy   sit on the client path (stdio) and verify what THIS session is served
 
 target (lock only):
   --url URL            Streamable HTTP endpoint
@@ -50,9 +53,15 @@ target (lock only):
 flags:
   --file PATH    lockfile path (default tools.lock)
   --name NAME    entry name (default: URL host / command basename; lock, or one entry)
-  --timeout D    per-server fetch budget (default 60s)
+  --timeout D    per-server fetch budget (default 60s; lock/verify/diff/pin)
   --offer V      protocolVersion to offer at initialize (lock only; default ` + client.DefaultOfferedVersion + `)
   --env K=V      extra environment for stdio servers (repeatable; never recorded)
+  --warn         proxy only: forward non-prompt-text drift with a warning;
+                 description/instructions changes and added tools still refuse
+
+proxy: point the MCP client at this command instead of the server —
+  {"command":"surfacelock","args":["proxy","--file","/abs/tools.lock","--name","NAME"]}
+The upstream (stdio command or Streamable HTTP URL) comes from the lockfile entry.
 
 exit codes: 0 ok · 1 drift · 2 usage · 3 transport/protocol · 4 lockfile · 5 inadmissible surface`
 
@@ -61,14 +70,14 @@ type multiFlag []string
 func (m *multiFlag) String() string     { return strings.Join(*m, ",") }
 func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
 
-func run(args []string, stdout, stderr io.Writer) int {
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
 		fmt.Fprintln(stderr, usage)
 		return exitUsage
 	}
 	cmd := args[0]
 	switch cmd {
-	case "lock", "verify", "diff", "pin":
+	case "lock", "verify", "diff", "pin", "proxy":
 	case "help", "-h", "--help":
 		fmt.Fprintln(stdout, usage)
 		return exitOK
@@ -84,14 +93,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 	timeout := fs.Duration("timeout", 60*time.Second, "per-server fetch budget")
 	offer := fs.String("offer", client.DefaultOfferedVersion, "protocolVersion to offer (lock only)")
 	urlFlag := fs.String("url", "", "Streamable HTTP endpoint (lock only)")
+	warn := fs.Bool("warn", false, "proxy only: forward non-prompt-text drift with a warning")
 	var env multiFlag
 	fs.Var(&env, "env", "extra KEY=VAL for stdio servers (repeatable)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return exitUsage
 	}
 
-	c := &cli{stdout: stdout, stderr: stderr, file: *file, name: *name,
-		timeout: *timeout, offer: *offer, url: *urlFlag, env: env, argv: fs.Args()}
+	c := &cli{stdin: stdin, stdout: stdout, stderr: stderr, file: *file, name: *name,
+		timeout: *timeout, offer: *offer, url: *urlFlag, warn: *warn, env: env, argv: fs.Args()}
 
 	switch cmd {
 	case "lock":
@@ -102,16 +112,20 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return c.compare(true)
 	case "pin":
 		return c.pin()
+	case "proxy":
+		return c.proxy()
 	}
 	return exitUsage
 }
 
 type cli struct {
+	stdin          io.Reader
 	stdout, stderr io.Writer
 	file, name     string
 	timeout        time.Duration
 	offer          string
 	url            string
+	warn           bool
 	env            []string
 	argv           []string
 }
@@ -128,14 +142,7 @@ func (c *cli) errorf(format string, args ...any) {
 
 // safe renders a string with control characters (C0, DEL, and other Unicode control
 // runes) escaped, so untrusted content cannot rewrite the terminal.
-func safe(s string) string {
-	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
-			return '�'
-		}
-		return r
-	}, s)
-}
+func safe(s string) string { return surfacelock.Sanitize(s) }
 
 // exitFor maps an error to the SPEC.md §9 exit code contract.
 func exitFor(err error) int {
@@ -290,6 +297,67 @@ func (c *cli) pin() int {
 		return exitLockfile
 	}
 	return exitOK
+}
+
+// proxy runs the in-band verifying proxy: stdin/stdout are the client-facing
+// MCP stdio transport, stderr carries findings, and the upstream (stdio command
+// or Streamable HTTP URL) comes from the lockfile entry — the lock is the
+// single source of truth for what is being proxied and what it must serve.
+func (c *cli) proxy() int {
+	lf, err := c.readLockfile()
+	if err != nil {
+		c.errorf("%v", err)
+		return exitLockfile
+	}
+	name := c.name
+	if name == "" {
+		if len(lf.Servers) != 1 {
+			c.errorf("proxy needs --name when %s has %d entries", c.file, len(lf.Servers))
+			return exitUsage
+		}
+		for n := range lf.Servers {
+			name = n
+		}
+	}
+	entry, ok := lf.Servers[name]
+	if !ok {
+		c.errorf("no entry %q in %s", name, c.file)
+		return exitUsage
+	}
+
+	// The client owns the session lifecycle (it closes stdin), but it may also
+	// just signal us — teardown must still reach the upstream process group.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer stop()
+
+	out, err := proxy.Run(ctx, proxy.Config{
+		Name:        name,
+		Entry:       entry,
+		Env:         c.env,
+		Warn:        c.warn,
+		Limits:      surfacelock.DefaultLimits(),
+		Findings:    c.stderr,
+		ChildStderr: c.stderr,
+	}, c.stdin, c.stdout)
+	if err != nil {
+		c.errorf("%v", err)
+		return exitTransport
+	}
+	// Same precedence as worse(): a session that saw bytes no verdict can be
+	// built on outranks a transport failure, which outranks a completed drift
+	// verdict — "the surface changed" and "there is no surface to judge" must
+	// never be confused by whatever wraps this process.
+	code := exitOK
+	if out.Drift {
+		code = exitDrift
+	}
+	if out.Transport {
+		code = exitTransport
+	}
+	if out.Inadmissible {
+		code = exitInadmissible
+	}
+	return code
 }
 
 // selectEntries resolves --name (or all entries, sorted) against the lockfile.
