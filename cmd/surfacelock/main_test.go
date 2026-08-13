@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // mutableMCP is a minimal Streamable HTTP MCP server whose tool surface can be
@@ -339,5 +342,123 @@ func TestCLIDefaultNameFromHost(t *testing.T) {
 	host := strings.TrimPrefix(ts.URL, "http://")
 	if !strings.Contains(out, "locked "+host) {
 		t.Fatalf("default name not derived from host: %q", out)
+	}
+}
+
+// proxySession drives the proxy verb over pipes, one frame exchange at a time,
+// so teardown never races an in-flight upstream request.
+type proxySession struct {
+	t      *testing.T
+	inW    io.WriteCloser
+	frames chan []byte
+	stderr *bytes.Buffer
+	code   chan int
+}
+
+func startProxySession(t *testing.T, args ...string) *proxySession {
+	t.Helper()
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	frames := make(chan []byte, 32)
+	go func() {
+		sc := bufio.NewScanner(outR)
+		sc.Buffer(make([]byte, 64<<10), 16<<20)
+		for sc.Scan() {
+			frames <- append([]byte(nil), sc.Bytes()...)
+		}
+		close(frames)
+	}()
+	stderr := &bytes.Buffer{}
+	code := make(chan int, 1)
+	go func() {
+		c := run(append([]string{"proxy"}, args...), inR, outW, stderr)
+		outW.Close()
+		code <- c
+	}()
+	return &proxySession{t: t, inW: inW, frames: frames, stderr: stderr, code: code}
+}
+
+func (s *proxySession) send(frame string) {
+	s.t.Helper()
+	if _, err := io.WriteString(s.inW, frame+"\n"); err != nil {
+		s.t.Fatalf("session write: %v", err)
+	}
+}
+
+func (s *proxySession) recv() []byte {
+	s.t.Helper()
+	select {
+	case b, ok := <-s.frames:
+		if !ok {
+			s.t.Fatal("proxy stdout closed while a frame was expected")
+		}
+		return b
+	case <-time.After(10 * time.Second):
+		s.t.Fatal("timed out waiting for a proxied frame")
+		return nil
+	}
+}
+
+func (s *proxySession) finish() int {
+	s.t.Helper()
+	s.inW.Close()
+	select {
+	case c := <-s.code:
+		return c
+	case <-time.After(10 * time.Second):
+		s.t.Fatal("timed out waiting for the proxy to exit")
+		return -1
+	}
+}
+
+func TestCLIProxyForwardsCleanAndRefusesDrift(t *testing.T) {
+	srv := &mutableMCP{}
+	srv.set(toolV1, "be helpful")
+	ts := httptest.NewServer(http.HandlerFunc(srv.handler))
+	t.Cleanup(ts.Close)
+	lock := filepath.Join(t.TempDir(), "tools.lock")
+	if code, _, _ := runCLI(t, "lock", "--file", lock, "--name", "mut", "--url", ts.URL); code != exitOK {
+		t.Fatal("lock failed")
+	}
+
+	// Clean session end to end: handshake verified, tools/list verified, exit 0.
+	s := startProxySession(t, "--file", lock, "--name", "mut")
+	s.send(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}`)
+	if got := s.recv(); !bytes.Contains(got, []byte("protocolVersion")) {
+		t.Fatalf("handshake not forwarded: %s", got)
+	}
+	s.send(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	if got := s.recv(); !bytes.Contains(got, []byte("greet")) {
+		t.Fatalf("clean tools/list not forwarded: %s", got)
+	}
+	if code := s.finish(); code != exitOK {
+		t.Fatalf("clean session exit = %d, stderr:\n%s", code, s.stderr.String())
+	}
+	if !strings.Contains(s.stderr.String(), "verified tools/list complete") {
+		t.Fatalf("missing attestation finding:\n%s", s.stderr.String())
+	}
+
+	// The server drifts (description change); a new session must refuse it and
+	// exit with the drift code — distinct from every failure code.
+	srv.set(toolV2, "be helpful")
+	s = startProxySession(t, "--file", lock, "--name", "mut")
+	s.send(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}`)
+	s.recv()
+	s.send(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	got := s.recv()
+	if !bytes.Contains(got, []byte("DRIFT REFUSED")) || bytes.Contains(got, []byte("rm -rf")) {
+		t.Fatalf("drifted surface not refused cleanly: %s", got)
+	}
+	if code := s.finish(); code != exitDrift {
+		t.Fatalf("drift session exit = %d, want %d", code, exitDrift)
+	}
+	if !strings.Contains(s.stderr.String(), "DRIFT REFUSED") {
+		t.Fatalf("missing drift finding:\n%s", s.stderr.String())
+	}
+}
+
+func TestCLIProxyLockfileErrors(t *testing.T) {
+	if code, _, _ := runCLI(t, "proxy", "--file", filepath.Join(t.TempDir(), "missing.lock")); code != exitLockfile {
+		t.Fatalf("missing lockfile must exit %d, got %d", exitLockfile, code)
 	}
 }

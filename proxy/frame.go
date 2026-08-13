@@ -130,6 +130,17 @@ func parseFrame(raw []byte) (*frame, error) {
 			return nil, errors.New("frame method is empty")
 		}
 		f.method = m
+		// JSON-RPC forbids a message that is both a request and a response. A
+		// decoder that checks result-before-method would demux such a frame as a
+		// response — so a poisoned page shaped {"id":<pending>,"method":"x",
+		// "result":…} could ride the request-forwarding path past verification
+		// into a sloppy client. No trustworthy identity: refuse.
+		if _, ok := obj["result"]; ok {
+			return nil, errors.New("frame carries both method and result")
+		}
+		if _, ok := obj["error"]; ok {
+			return nil, errors.New("frame carries both method and error")
+		}
 	}
 	return f, nil
 }

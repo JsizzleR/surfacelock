@@ -35,6 +35,7 @@ type httpBackend struct {
 	mu        sync.Mutex
 	sessionID string
 	proto     string // negotiated era; the MCP-Protocol-Version header post-handshake
+	closed    bool   // no wg.Add after Close has begun wg.Wait
 }
 
 const httpCloseTimeout = 5 * time.Second
@@ -63,7 +64,13 @@ func (b *httpBackend) Send(_ context.Context, frame []byte) error {
 	if idRaw != nil && isJSONNull(idRaw) {
 		idRaw = nil
 	}
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return context.Canceled
+	}
 	b.wg.Add(1)
+	b.mu.Unlock()
 	go b.roundTrip(frame, idRaw, cheapMetaEra(obj["params"]))
 	return nil
 }
@@ -224,7 +231,13 @@ func (b *httpBackend) relaySSE(body io.Reader, idRaw json.RawMessage) {
 // to verify — would be silently suppressed.
 func (b *httpBackend) StartNotificationStream() {
 	b.notifOnce.Do(func() {
+		b.mu.Lock()
+		if b.closed {
+			b.mu.Unlock()
+			return
+		}
 		b.wg.Add(1)
+		b.mu.Unlock()
 		go b.notifLoop()
 	})
 }
@@ -304,6 +317,7 @@ func (b *httpBackend) Err() error { return nil }
 func (b *httpBackend) Close() {
 	b.closeOnce.Do(func() {
 		b.mu.Lock()
+		b.closed = true
 		sid := b.sessionID
 		b.mu.Unlock()
 		b.cancel()
