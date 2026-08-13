@@ -35,6 +35,14 @@ treats the tool surface like a dependency:
 {"command":"surfacelock","args":["proxy","--file","/abs/path/tools.lock","--name","some-server"]}
 ```
 
+The `conformance/` package makes the lockfile's era tag a *checkable claim*: a
+pre-registered predicate set (`conformance/PREDICATES.md`) turns "conformant to
+protocol revision E" into mechanically testable wire behavior, `Check` /
+`CheckLockEntry` grade a live server against the era a lock entry records, and
+`conformance/gen` maintains the era-conformance matrix (`conformance/matrix.md`,
+generated from retained captures — never hand-written; every capture is kept so
+the matrix is re-derivable from data alone).
+
 Design premises:
 
 - **Unilateral adoption.** One consumer adopts and is protected — no publisher

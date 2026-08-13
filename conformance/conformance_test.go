@@ -15,6 +15,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/JsizzleR/surfacelock"
 )
 
 // fakeClassic is a configurable 2025-11-25 Streamable-HTTP fake. The zero
@@ -325,5 +327,25 @@ func TestToolslessServerGetsNAToolsCellsNotViolations(t *testing.T) {
 	}
 	if rep.Verdict != Conformant {
 		t.Errorf("verdict = %s, want CONFORMANT for the conformant resources-only server; cells: %+v", rep.Verdict, rep.Cells)
+	}
+}
+
+// CheckLockEntry joins a lockfile entry to the era check: the entry's own
+// transport/target is probed and its recorded era graded. Era mapping and
+// polarity, not a re-test of the graders.
+func TestCheckLockEntryValidatesTheRecordedEra(t *testing.T) {
+	srv := httptest.NewServer((&fakeClassic{}).handler())
+	t.Cleanup(srv.Close)
+	good := &surfacelock.ServerLock{Transport: "http", Target: srv.URL,
+		Protocol: surfacelock.Protocol{Offered: "2025-11-25", Era: "2025-11-25", Flow: "classic"}}
+	rep, err := CheckLockEntry(context.Background(), good)
+	if err != nil {
+		t.Fatalf("conformant entry failed its era claim: %v (verdict %s)", err, rep.Verdict)
+	}
+	// A claim against a dead target must FAIL, never pass silently.
+	dead := &surfacelock.ServerLock{Transport: "http", Target: "http://127.0.0.1:1/mcp",
+		Protocol: surfacelock.Protocol{Offered: "2025-11-25", Era: "2025-11-25", Flow: "classic"}}
+	if _, err := CheckLockEntry(context.Background(), dead); err == nil {
+		t.Fatal("dead target passed its era claim")
 	}
 }
