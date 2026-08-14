@@ -6,9 +6,9 @@ Predicates and verdict model: `conformance/PREDICATES.md` (pre-registered).
 | target | kind | era | verdict | MUST violations | SHOULD violations | unreached |
 |---|---|---|---|---|---|---|
 | astro-docs | http | 2025-06-18 | CONFORMANT* | — | T2.badcursor | — |
-| bastle-bridge-legacy | http | 2026-07-28 | NONCONFORMANT | D2.nometa, V2.mismatch, C1.cacheable, R1.resulttype | T2.badcursor | — |
+| bastle-bridge-legacy | http | 2026-07-28 | CONFORMANT* | — | T2.badcursor | — |
 | bastle-bridge-modern | http | 2026-07-28 | CONFORMANT* | — | T2.badcursor | — |
-| bastle-okffacade | http | 2026-07-28 | NONCONFORMANT | D2.nometa | — | — |
+| bastle-okffacade | http | 2026-07-28 | CONFORMANT | — | — | — |
 | cloudflare-docs | http | 2025-11-25 | CONFORMANT* | — | T2.badcursor | — |
 | coingecko | http | 2025-11-25 | CONFORMANT* | — | T2.badcursor | — |
 | context7-remote | http | 2025-11-25 | CONFORMANT* | — | T2.badcursor | — |
@@ -62,19 +62,11 @@ Predicates and verdict model: `conformance/PREDICATES.md` (pre-registered).
 
 ### bastle-bridge-legacy @ 2026-07-28
 
-- `D2.nometa` MUST! — request without the mandatory _meta envelope SERVED
 - `T2.badcursor` should! — invalid cursor ACCEPTED (spec SHOULD refuse with -32602)
-- `V2.mismatch` MUST! — request naming an unsupported protocolVersion was SERVED
-- `C1.cacheable` MUST! — tools/list result lacks CacheableResult fields (ttlMs=false cacheScope=false)
-- `R1.resulttype` MUST! — H3.cold result lacks resultType:"complete"
 
 ### bastle-bridge-modern @ 2026-07-28
 
 - `T2.badcursor` should! — invalid cursor ACCEPTED (spec SHOULD refuse with -32602)
-
-### bastle-okffacade @ 2026-07-28
-
-- `D2.nometa` MUST! — request without the mandatory _meta envelope SERVED
 
 ### cloudflare-docs @ 2025-11-25
 

@@ -2,7 +2,7 @@
  "target": "bastle-bridge-modern",
  "kind": "http",
  "era": "2026-07-28",
- "taken_at": "2026-08-13T04:31:08Z",
+ "taken_at": "2026-08-14T16:51:48Z",
  "exchanges": [
   {
    "probe": "D1.discover",
