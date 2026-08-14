@@ -16,3 +16,8 @@ notes/
 .DS_Store
 .env
 .env.*
+
+# Python
+.venv/
+__pycache__/
+*.pyc
