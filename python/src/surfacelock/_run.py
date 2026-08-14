@@ -49,20 +49,16 @@ def run_verb(
     on a multi-entry verify, which the bindings cannot know without parsing the
     lockfile (the one canonical parser is the Go side), so it defaults to None.
     """
-    if not (isinstance(timeout, (int, float)) and math.isfinite(timeout) and timeout > 0):
-        raise UsageError(f"timeout must be a finite positive number, not {timeout!r}")
-    if process_budget is not None and not (
-        isinstance(process_budget, (int, float))
-        and math.isfinite(process_budget)
-        and process_budget > 0
-    ):
-        raise UsageError(f"process_budget must be a finite positive number, not {process_budget!r}")
-    argv = [find_binary(binary), verb, "--json", "--timeout", _go_duration(timeout), *args]
-    for a in argv:
-        if not isinstance(a, str) or "\x00" in a:
-            # subprocess would raise a bare ValueError on an embedded NUL;
-            # caller misuse must arrive as the caller-misuse type.
+    timeout = _check_seconds("timeout", timeout)
+    if process_budget is not None:
+        process_budget = _check_seconds("process_budget", process_budget)
+    # All caller strings are validated BEFORE any path lookup or subprocess:
+    # a NUL would otherwise surface as a bare ValueError from pathlib or
+    # subprocess, and caller misuse must arrive as the caller-misuse type.
+    for a in (binary, *args):
+        if a is not None and (not isinstance(a, str) or "\x00" in a):
             raise UsageError(f"invalid argument {a!r}")
+    argv = [find_binary(binary), verb, "--json", "--timeout", _go_duration(timeout), *args]
     try:
         proc = subprocess.run(argv, capture_output=True, timeout=process_budget)
     except subprocess.TimeoutExpired as exc:
@@ -147,7 +143,11 @@ def parse_report(doc: Mapping[str, Any], code: int) -> Report:
     never a bare KeyError/TypeError from inside the bindings."""
     try:
         return report_from_doc(doc)
-    except (KeyError, TypeError, AttributeError) as exc:
+    except SurfacelockError:
+        raise
+    except Exception as exc:
+        # Any decode failure, whatever built-in it surfaces as: a doc our own
+        # binary never emits means a wrong binary, the protocol error type.
         raise SurfacelockError(
             f"malformed surfacelock report: {exc!r}", exit_code=code
         ) from exc
@@ -157,11 +157,38 @@ def parse_lock_result(doc: Mapping[str, Any], code: int) -> LockResult:
     """lock_result_from_doc with the same malformed-document mapping."""
     try:
         return lock_result_from_doc(doc)
-    except (KeyError, TypeError, AttributeError) as exc:
+    except SurfacelockError:
+        raise
+    except Exception as exc:
         raise SurfacelockError(
             f"malformed surfacelock report: {exc!r}", exit_code=code
         ) from exc
 
 
+def _check_seconds(name: str, value: Any) -> float:
+    """Validate a seconds value into a float Go's duration syntax can carry.
+
+    bool is rejected explicitly (it subclasses int, so True would silently mean
+    1 s); the bounds keep _go_duration exact and exponent-free — Go's
+    ParseDuration accepts neither "1e-06s" nor astronomically long durations,
+    and a huge int would overflow math.isfinite before any other check ran.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise UsageError(f"{name} must be a number of seconds, not {value!r}")
+    try:
+        f = float(value)
+    except OverflowError as exc:
+        # No {value!r} here: repr of a >4300-digit int raises ValueError while
+        # BUILDING the message (CPython's int-to-str digit limit) — the guard
+        # must not fail inside its own refusal.
+        raise UsageError(f"{name} is out of range") from exc
+    if not math.isfinite(f) or not (0.001 <= f <= 10**9):
+        raise UsageError(f"{name} must be between 0.001 and 1e9 seconds, not {f!r}")
+    return f
+
+
 def _go_duration(seconds: float) -> str:
-    return f"{seconds:g}s"
+    # Fixed-point, never exponent notation: Go's ParseDuration rejects "1e-06s".
+    # Bounds enforced by _check_seconds keep this exact at 9 decimal places.
+    text = f"{seconds:.9f}".rstrip("0").rstrip(".")
+    return f"{text}s"

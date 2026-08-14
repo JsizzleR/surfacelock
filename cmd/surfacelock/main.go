@@ -455,7 +455,17 @@ func (c *cli) compare(verbose bool) int {
 		}
 		drifted = true
 		worst = worse(worst, exitDrift)
-		rep.Servers[name] = &jsonServer{Outcome: "drift", Diff: diffToJSON(d)}
+		js := &jsonServer{Outcome: "drift", Diff: diffToJSON(d)}
+		// The observed surface is the drift verdict's evidence; a later pin is
+		// ANOTHER observation and cannot recover this one. SurfaceHash on an
+		// admitted surface does not fail in practice; if it ever does, the
+		// verdict stands and only the optional evidence field is dropped.
+		if h, err := surface.SurfaceHash(); err == nil {
+			js.Observed = &jsonObserved{Tools: len(surface.Tools), Era: surface.Era, SurfaceHash: h}
+		} else {
+			c.errorf("%s: hash observed surface: %v", name, err)
+		}
+		rep.Servers[name] = js
 		if !c.jsonOut {
 			c.reportDrift(name, d, verbose)
 		}

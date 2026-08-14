@@ -6,7 +6,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 
 	"github.com/JsizzleR/surfacelock"
 )
@@ -46,6 +45,17 @@ type jsonServer struct {
 	Tools   *int      `json:"tools,omitempty"` // ok: locked tool count
 	Era     string    `json:"era,omitempty"`   // ok: locked era
 	Diff    *jsonDiff `json:"diff,omitempty"`  // drift only
+	// Observed is the live surface the drift verdict was built on. A later
+	// pin performs ANOTHER observation and cannot recover this one, so the
+	// evidence travels with the verdict (drift only).
+	Observed *jsonObserved `json:"observed,omitempty"`
+}
+
+// jsonObserved identifies the live surface behind a drift verdict.
+type jsonObserved struct {
+	Tools       int    `json:"tools"`
+	Era         string `json:"era"`
+	SurfaceHash string `json:"surface_hash"`
 }
 
 // jsonDiff mirrors surfacelock.SurfaceDiff. Severity and class order come from
@@ -119,8 +129,12 @@ func (c *cli) finish(rep *jsonReport, code int) int {
 		c.errorf("render --json report: %v", err)
 		return worse(code, exitTransport)
 	}
-	if _, err := fmt.Fprintf(c.stdout, "%s\n", b); err != nil {
-		c.errorf("write --json report: %v", err)
+	b = append(b, '\n')
+	// n is checked as well as err: a Writer returning a short count with a nil
+	// error violates io.Writer's contract, but a truncated report trusted as
+	// exit 0 is the worse failure mode, so the guard is cheap fail-closed.
+	if n, err := c.stdout.Write(b); err != nil || n != len(b) {
+		c.errorf("write --json report: %v (wrote %d of %d bytes)", err, n, len(b))
 		return worse(code, exitTransport)
 	}
 	return code

@@ -252,3 +252,40 @@ def test_process_budget_timeout_is_not_transport(
         surfacelock.verify(lockfile="x.lock", process_budget=0.2)
     assert not isinstance(exc.value, TransportError)
     assert "process budget" in str(exc.value)
+
+
+def test_drift_carries_observed_evidence(tmp_path: pathlib.Path, fixture_argv: list) -> None:
+    """The observed surface travels with the drift verdict — a later pin is a
+    different observation and cannot recover this one."""
+    lf = tmp_path / "tools.lock"
+    surfacelock.lock(fixture_argv, lockfile=str(lf), name="fixture")
+    report = surfacelock.diff(lockfile=str(lf), env={"FIXTURE_TOOLS": DRIFTED_TOOLS})
+    d = report.servers["fixture"]
+    assert isinstance(d, ServerDiff)
+    assert d.observed_tools == 1
+    assert d.observed_era == "2025-11-25"
+    assert d.observed_surface_hash is not None
+    assert d.observed_surface_hash.startswith("sha256:")
+
+
+def test_seconds_validation_rejects_bools_and_unrepresentables(tmp_path: pathlib.Path) -> None:
+    lf = str(tmp_path / "x.lock")
+    for bad in (True, 1e-6, 10**10000, 10**10):
+        with pytest.raises(UsageError):
+            surfacelock.verify(lockfile=lf, timeout=bad)  # type: ignore[arg-type]
+    with pytest.raises(UsageError):
+        surfacelock.verify(lockfile=lf, process_budget=True)  # type: ignore[arg-type]
+
+
+def test_go_duration_is_exact_and_exponent_free() -> None:
+    from surfacelock._run import _go_duration
+
+    assert _go_duration(60.0) == "60s"
+    assert _go_duration(1.5) == "1.5s"
+    assert _go_duration(0.001) == "0.001s"
+    assert "e" not in _go_duration(0.001)
+
+
+def test_nul_in_binary_param_is_usage_error() -> None:
+    with pytest.raises(UsageError):
+        surfacelock.verify(lockfile="x.lock", binary="bad\x00bin")

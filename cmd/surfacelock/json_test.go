@@ -115,6 +115,12 @@ func TestJSONLifecycle(t *testing.T) {
 		if td["name"] != "greet" || len(classes) == 0 || classes[0] != "description" {
 			t.Fatalf("%s tool diff wrong: %v", verb, td)
 		}
+		obs, _ := s["observed"].(map[string]any)
+		obsHash, _ := obs["surface_hash"].(string)
+		if obs == nil || obs["tools"] != float64(1) || obs["era"] != "2025-11-25" ||
+			!strings.HasPrefix(obsHash, "sha256:") {
+			t.Fatalf("%s drift evidence (observed) wrong: %v", verb, s)
+		}
 	}
 }
 
@@ -303,5 +309,21 @@ func TestJSONWriteFailureEscalatesExit(t *testing.T) {
 	}
 	if out.Len() == 0 {
 		t.Fatal("working writer received no report")
+	}
+}
+
+// shortWriter violates io.Writer by reporting a short count with a nil error.
+type shortWriter struct{}
+
+func (shortWriter) Write(p []byte) (int, error) { return len(p) - 1, nil }
+
+// TestJSONShortWriteWithNilErrorStillEscalates: a truncated report trusted as a
+// verdict is the failure mode; the byte-count guard closes it even for a
+// contract-violating writer.
+func TestJSONShortWriteWithNilErrorStillEscalates(t *testing.T) {
+	var stderr strings.Builder
+	c := &cli{jsonOut: true, stdout: shortWriter{}, stderr: &stderr}
+	if got := c.finish(c.newReport("verify"), exitOK); got != exitTransport {
+		t.Fatalf("finish with short-writing stdout = %d, want %d", got, exitTransport)
 	}
 }

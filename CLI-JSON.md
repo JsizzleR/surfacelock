@@ -33,7 +33,14 @@ contract:
 - If the report cannot be rendered or written (a closed pipe), the promise above is
   broken, and the exit code escalates to at least transport severity
   (`worse(code, 3)`): a verdict whose report was never delivered is not consumable
-  as a verdict, so exit 0/1 with a missing or truncated document cannot occur.
+  as a verdict, so exit 0/1 with a missing or truncated document cannot occur. When a
+  write failure is discovered after some bytes were emitted, stdout is untrustworthy
+  and the **process exit code is the authority** — a consumer that sees a document
+  whose `"exit"` disagrees with the process exit must refuse it.
+- `"error"` fields are **opaque human text** for display and logs. Consumers MUST NOT
+  match on their content — the typed outcome (`"outcome"`, `"exit"`) is the only
+  machine-readable verdict. Structured sub-classification (e.g. a `transport_kind`)
+  would arrive as a new field, never as message wording.
 - `"exit"` inside the document always equals the process exit code.
 - **Versioning**: `"surfacelock_json"` is an integer, bumped on any breaking change to
   this shape. Adding fields is not breaking — consumers MUST ignore fields they do not
@@ -71,7 +78,12 @@ One entry per server processed this run (the `--name` selection, or every entry)
   "outcome": "ok" | "drift" | "transport" | "lockfile" | "inadmissible",
   "error": "…",                  // transport/lockfile/inadmissible only
   "tools": 3, "era": "2025-11-25",   // ok only: the locked entry's count and era
-  "diff": { /* diff object */ }      // drift only
+  "diff": { /* diff object */ },     // drift only
+  "observed": {                      // drift only: the live surface the verdict
+    "tools": 4,                      // was built on — a later pin is ANOTHER
+    "era": "2025-11-25",             // observation and cannot recover this one
+    "surface_hash": "sha256:…"
+  }
 }
 ```
 

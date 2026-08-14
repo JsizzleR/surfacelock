@@ -34,7 +34,11 @@ class ToolDrift:
 
 @dataclass(frozen=True)
 class ServerDiff:
-    """One server's classified drift (outcome "drift")."""
+    """One server's classified drift (outcome "drift").
+
+    observed_* identify the live surface this verdict was built on — a later
+    pin performs another observation and cannot recover this one. None when
+    the binary predates the field (the contract is additive)."""
 
     severity: str
     era_changed: bool
@@ -42,6 +46,9 @@ class ServerDiff:
     new_era: str
     instructions_changed: bool
     tools: Tuple[ToolDrift, ...]
+    observed_tools: Optional[int] = None
+    observed_era: Optional[str] = None
+    observed_surface_hash: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -92,6 +99,7 @@ def _server_result(doc: Mapping[str, Any]) -> ServerResult:
         return ServerOK(tools=doc["tools"], era=doc["era"])
     if outcome == "drift":
         d = doc["diff"]
+        obs = doc.get("observed") or {}
         return ServerDiff(
             severity=d["severity"],
             era_changed=d["era_changed"],
@@ -99,6 +107,9 @@ def _server_result(doc: Mapping[str, Any]) -> ServerResult:
             new_era=d["new_era"],
             instructions_changed=d["instructions_changed"],
             tools=tuple(_tool_drift(t) for t in d["tools"]),
+            observed_tools=obs.get("tools"),
+            observed_era=obs.get("era"),
+            observed_surface_hash=obs.get("surface_hash"),
         )
     return ServerFailure(outcome=outcome, error=doc.get("error", ""))
 
