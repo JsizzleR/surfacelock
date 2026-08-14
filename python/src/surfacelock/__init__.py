@@ -35,7 +35,7 @@ from ._errors import (
     TransportError,
     UsageError,
 )
-from ._run import raise_for, run_verb
+from ._run import parse_lock_result, parse_report, raise_for, run_verb
 from ._types import (
     LockResult,
     Report,
@@ -44,8 +44,6 @@ from ._types import (
     ServerOK,
     ServerResult,
     ToolDrift,
-    lock_result_from_doc,
-    report_from_doc,
 )
 
 __version__ = "0.1.0.dev0"
@@ -78,8 +76,10 @@ def _env_args(env: Optional[Mapping[str, str]]) -> list:
         return []
     out = []
     for k, v in env.items():
-        if not k or "=" in k:
+        if not isinstance(k, str) or not k or "=" in k:
             raise UsageError(f"invalid env key {k!r}")
+        if not isinstance(v, str):
+            raise UsageError(f"env value for {k!r} must be a string, not {type(v).__name__}")
         out += ["--env", f"{k}={v}"]
     return out
 
@@ -121,7 +121,7 @@ def lock(
                                  process_budget=process_budget)
     if code != 0:
         raise_for(code, doc, stderr)
-    return lock_result_from_doc(doc)
+    return parse_lock_result(doc, code)
 
 
 def verify(
@@ -177,7 +177,7 @@ def _compare(
     args += _env_args(env)
     code, doc, stderr = run_verb(verb, args, binary=binary, timeout=timeout,
                                  process_budget=process_budget)
-    report = report_from_doc(doc)
+    report = parse_report(doc, code)
     if code == 0 or (code == 1 and not raise_on_drift):
         return report
     raise_for(code, doc, stderr, report=report)

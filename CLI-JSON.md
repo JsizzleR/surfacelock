@@ -30,6 +30,10 @@ contract:
   else, on **every** exit path. Human diagnostics still go to stderr.
   The one exception is a flag-parse failure itself (exit 2, nothing on stdout): the
   process could not have known `--json` was intended.
+- If the report cannot be rendered or written (a closed pipe), the promise above is
+  broken, and the exit code escalates to at least transport severity
+  (`worse(code, 3)`): a verdict whose report was never delivered is not consumable
+  as a verdict, so exit 0/1 with a missing or truncated document cannot occur.
 - `"exit"` inside the document always equals the process exit code.
 - **Versioning**: `"surfacelock_json"` is an integer, bumped on any breaking change to
   this shape. Adding fields is not breaking — consumers MUST ignore fields they do not

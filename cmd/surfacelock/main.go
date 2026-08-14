@@ -266,7 +266,10 @@ func (c *cli) lock() int {
 	}
 	lf.Servers[name] = entry
 	if err := c.writeLockfile(lf); err != nil {
-		c.errorf("write %s: %v", c.file, err)
+		// Wrap before fail so the report says WHICH half failed (read vs
+		// write) — a consumer must not need stderr to learn that.
+		err = fmt.Errorf("write %s: %w", c.file, err)
+		c.errorf("%v", err)
 		return c.fail(rep, exitLockfile, err)
 	}
 	n := len(entry.Tools)

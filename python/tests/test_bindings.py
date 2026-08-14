@@ -158,3 +158,97 @@ def test_missing_binary_is_its_own_error(monkeypatch: pytest.MonkeyPatch) -> Non
     with pytest.raises(SurfacelockError) as exc:
         surfacelock.verify(lockfile="irrelevant.lock")
     assert exc.value.exit_code is None
+
+
+# --- protocol-defense regressions (found by the model-diverse review): the
+# bindings must stay honest against a wrong, old, or hostile BINARY, not only
+# against servers — every case below drives a fake binary via SURFACELOCK_BIN.
+
+FAKE_BIN = """#!/usr/bin/env python3
+import os, sys
+sys.stdout.write(os.environ["FAKE_STDOUT"])
+sys.stderr.write(os.environ.get("FAKE_STDERR", ""))
+sys.exit(int(os.environ.get("FAKE_EXIT", "0")))
+"""
+
+
+@pytest.fixture
+def fake_binary(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch):
+    p = tmp_path / "fake-surfacelock"
+    p.write_text(FAKE_BIN)
+    p.chmod(0o755)
+
+    def set_output(stdout: str, exit_code: int = 0, stderr: str = "") -> None:
+        monkeypatch.setenv("SURFACELOCK_BIN", str(p))
+        monkeypatch.setenv("FAKE_STDOUT", stdout)
+        monkeypatch.setenv("FAKE_STDERR", stderr)
+        monkeypatch.setenv("FAKE_EXIT", str(exit_code))
+
+    return set_output
+
+
+def test_exit_zero_without_report_is_protocol_error(fake_binary) -> None:
+    fake_binary("", exit_code=0)
+    with pytest.raises(SurfacelockError) as exc:
+        surfacelock.verify(lockfile="x.lock")
+    assert type(exc.value) is SurfacelockError  # never a silent success
+
+
+def test_bool_version_does_not_pass_int_gate(fake_binary) -> None:
+    fake_binary('{"surfacelock_json": true, "exit": 0, "verb": "verify", "file": "x"}')
+    with pytest.raises(SurfacelockError) as exc:
+        surfacelock.verify(lockfile="x.lock")
+    assert "contract version" in str(exc.value)
+
+
+def test_malformed_doc_is_protocol_error_not_keyerror(fake_binary) -> None:
+    # Valid envelope, required report keys missing: must be SurfacelockError.
+    fake_binary('{"surfacelock_json": 1, "exit": 0}')
+    with pytest.raises(SurfacelockError) as exc:
+        surfacelock.verify(lockfile="x.lock")
+    assert type(exc.value) is SurfacelockError
+    fake_binary('{"surfacelock_json": 1, "exit": 0, "verb": "lock", "file": "x"}')
+    with pytest.raises(SurfacelockError):
+        surfacelock.lock("https://example.invalid/mcp", lockfile="x.lock")
+
+
+def test_report_exit_disagreement_is_refused(fake_binary) -> None:
+    fake_binary('{"surfacelock_json": 1, "exit": 0, "verb": "verify", "file": "x", "servers": {}}',
+                exit_code=1)
+    with pytest.raises(SurfacelockError) as exc:
+        surfacelock.verify(lockfile="x.lock")
+    assert "disagrees" in str(exc.value)
+
+
+def test_hostile_doc_error_text_is_neutralized(fake_binary) -> None:
+    fake_binary('{"surfacelock_json": 1, "exit": 3, "verb": "verify", "file": "x",'
+                ' "error": "boom \\u001b[2J\\u0007 wiped"}', exit_code=3)
+    with pytest.raises(TransportError) as exc:
+        surfacelock.verify(lockfile="x.lock")
+    msg = str(exc.value)
+    assert "boom" in msg
+    assert "\x1b" not in msg and "\x07" not in msg
+
+
+def test_nul_and_bad_numbers_are_usage_errors(tmp_path: pathlib.Path) -> None:
+    with pytest.raises(UsageError):
+        surfacelock.verify(lockfile="x\x00y.lock")
+    with pytest.raises(UsageError):
+        surfacelock.verify(lockfile=str(tmp_path / "x.lock"), timeout=float("nan"))
+    with pytest.raises(UsageError):
+        surfacelock.verify(lockfile=str(tmp_path / "x.lock"), timeout=-1)
+    with pytest.raises(UsageError):
+        surfacelock.verify(lockfile=str(tmp_path / "x.lock"), env={"K": 5})  # type: ignore[dict-item]
+
+
+def test_process_budget_timeout_is_not_transport(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    slow = tmp_path / "slow-surfacelock"
+    slow.write_text("#!/usr/bin/env python3\nimport time\ntime.sleep(60)\n")
+    slow.chmod(0o755)
+    monkeypatch.setenv("SURFACELOCK_BIN", str(slow))
+    with pytest.raises(SurfacelockError) as exc:
+        surfacelock.verify(lockfile="x.lock", process_budget=0.2)
+    assert not isinstance(exc.value, TransportError)
+    assert "process budget" in str(exc.value)

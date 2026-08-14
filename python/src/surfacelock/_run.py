@@ -10,12 +10,13 @@ confidently.
 from __future__ import annotations
 
 import json
+import math
 import subprocess
 from typing import Any, List, Mapping, Optional, Tuple
 
 from ._bin import find_binary
-from ._errors import EXIT_ERRORS, SurfacelockError, TransportError, UsageError
-from ._types import Report, report_error_text, report_from_doc
+from ._errors import EXIT_ERRORS, SurfacelockError, UsageError
+from ._types import LockResult, Report, lock_result_from_doc, report_error_text, report_from_doc
 
 JSON_CONTRACT_VERSION = 1
 
@@ -48,12 +49,28 @@ def run_verb(
     on a multi-entry verify, which the bindings cannot know without parsing the
     lockfile (the one canonical parser is the Go side), so it defaults to None.
     """
+    if not (isinstance(timeout, (int, float)) and math.isfinite(timeout) and timeout > 0):
+        raise UsageError(f"timeout must be a finite positive number, not {timeout!r}")
+    if process_budget is not None and not (
+        isinstance(process_budget, (int, float))
+        and math.isfinite(process_budget)
+        and process_budget > 0
+    ):
+        raise UsageError(f"process_budget must be a finite positive number, not {process_budget!r}")
     argv = [find_binary(binary), verb, "--json", "--timeout", _go_duration(timeout), *args]
+    for a in argv:
+        if not isinstance(a, str) or "\x00" in a:
+            # subprocess would raise a bare ValueError on an embedded NUL;
+            # caller misuse must arrive as the caller-misuse type.
+            raise UsageError(f"invalid argument {a!r}")
     try:
         proc = subprocess.run(argv, capture_output=True, timeout=process_budget)
     except subprocess.TimeoutExpired as exc:
-        raise TransportError(
-            f"surfacelock {verb} exceeded the {process_budget:.0f}s process budget",
+        # Deliberately NOT TransportError: no transport failure was observed —
+        # the caller's own process budget ran out, and the remedy (raise the
+        # budget) is the caller's, not the network's.
+        raise SurfacelockError(
+            f"surfacelock {verb} exceeded the caller's {process_budget:g}s process budget",
             exit_code=None,
         ) from exc
     except OSError as exc:
@@ -71,12 +88,14 @@ def run_verb(
 
     stdout = proc.stdout.decode("utf-8", errors="replace")
     if not stdout.strip():
-        if code == 2:
-            # The one contract-permitted no-report path: flag parsing failed.
-            raise UsageError(f"surfacelock {verb}: {stderr}".rstrip(": "), exit_code=code)
+        # The contract's one no-report path is a flag-parse failure (exit 2) —
+        # but the bindings construct the argv themselves and validate caller
+        # values first, so reaching it means the BINARY does not speak these
+        # flags (too old for --json, or a wrong SURFACELOCK_BIN). That is an
+        # environment problem, not caller misuse: base type, not UsageError.
         raise SurfacelockError(
             f"surfacelock {verb} exited {code} without a machine report "
-            f"(binary older than the --json contract?): {stderr}".rstrip(": "),
+            f"(binary older than the --json contract, or not surfacelock?): {stderr}".rstrip(": "),
             exit_code=code,
         )
 
@@ -91,15 +110,18 @@ def run_verb(
             f"surfacelock {verb} report is not an object", exit_code=code
         )
     got = doc.get("surfacelock_json")
-    if got != JSON_CONTRACT_VERSION:
+    # type(x) is int, not ==: bool subclasses int in Python, so true == 1 and a
+    # doc saying {"surfacelock_json": true} must not pass the version gate.
+    if type(got) is not int or got != JSON_CONTRACT_VERSION:
         raise SurfacelockError(
             f"surfacelock report contract version {got!r}; these bindings "
             f"implement {JSON_CONTRACT_VERSION}",
             exit_code=code,
         )
-    if doc.get("exit") != code:
+    rep_exit = doc.get("exit")
+    if type(rep_exit) is not int or rep_exit != code:
         raise SurfacelockError(
-            f"report exit {doc.get('exit')!r} disagrees with process exit {code}",
+            f"report exit {rep_exit!r} disagrees with process exit {code}",
             exit_code=code,
         )
     return code, doc, stderr
@@ -107,10 +129,38 @@ def run_verb(
 
 def raise_for(code: int, doc: Optional[Mapping[str, Any]], stderr: str,
               *, report: Optional[Report] = None) -> None:
-    """Raise the typed exception for a non-zero exit. code must be 1–5."""
+    """Raise the typed exception for a non-zero exit. code must be 1–5.
+
+    The message is _clean'd even though the Go side sanitizes what it emits:
+    the doc's error text is exactly the field a wrong or hostile binary
+    controls, and str(exc) lands in terminals and logs. Structured report
+    fields stay faithful data; only display text is neutralized here.
+    """
     err_cls = EXIT_ERRORS[code]
-    message = report_error_text(doc) or stderr.strip() or f"surfacelock exited {code}"
+    message = _clean(report_error_text(doc) or stderr.strip() or f"surfacelock exited {code}")
     raise err_cls(message, exit_code=code, report=report)
+
+
+def parse_report(doc: Mapping[str, Any], code: int) -> Report:
+    """report_from_doc with malformed-document failures mapped to the protocol
+    error type — a doc missing required keys must surface as a SurfacelockError,
+    never a bare KeyError/TypeError from inside the bindings."""
+    try:
+        return report_from_doc(doc)
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise SurfacelockError(
+            f"malformed surfacelock report: {exc!r}", exit_code=code
+        ) from exc
+
+
+def parse_lock_result(doc: Mapping[str, Any], code: int) -> LockResult:
+    """lock_result_from_doc with the same malformed-document mapping."""
+    try:
+        return lock_result_from_doc(doc)
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise SurfacelockError(
+            f"malformed surfacelock report: {exc!r}", exit_code=code
+        ) from exc
 
 
 def _go_duration(seconds: float) -> str:

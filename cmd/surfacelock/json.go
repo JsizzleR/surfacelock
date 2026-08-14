@@ -104,7 +104,11 @@ func (c *cli) newReport(verb string) *jsonReport {
 
 // finish stamps the exit code, emits the report if --json, and returns the code
 // — every post-flag-parse return path in a --json run goes through here, so
-// stdout carries exactly one JSON document per run.
+// stdout carries exactly one JSON document per run. If the report cannot be
+// rendered OR written (a closed pipe), the contract's promise is broken, so the
+// exit escalates to at least transport severity: a verdict whose report was
+// never delivered must not be consumable as a verdict (exit 0 with an empty
+// stdout would read as "clean, report follows").
 func (c *cli) finish(rep *jsonReport, code int) int {
 	rep.Exit = code
 	if !c.jsonOut {
@@ -112,14 +116,13 @@ func (c *cli) finish(rep *jsonReport, code int) int {
 	}
 	b, err := json.MarshalIndent(rep, "", "  ")
 	if err != nil {
-		// A report that cannot render must not exit 0 pretending it did.
 		c.errorf("render --json report: %v", err)
-		if code == exitOK {
-			code = exitTransport
-		}
-		return code
+		return worse(code, exitTransport)
 	}
-	fmt.Fprintf(c.stdout, "%s\n", b)
+	if _, err := fmt.Fprintf(c.stdout, "%s\n", b); err != nil {
+		c.errorf("write --json report: %v", err)
+		return worse(code, exitTransport)
+	}
 	return code
 }
 

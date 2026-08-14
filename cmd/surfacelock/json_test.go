@@ -257,3 +257,51 @@ func TestJSONNeutralizesHostileErrorText(t *testing.T) {
 		}
 	}
 }
+
+// failWriter fails after n bytes — a closed pipe mid-report.
+type failWriter struct{ n int }
+
+func (w *failWriter) Write(p []byte) (int, error) {
+	if w.n <= 0 {
+		return 0, fmt.Errorf("broken pipe")
+	}
+	if len(p) > w.n {
+		n := w.n
+		w.n = 0
+		return n, fmt.Errorf("broken pipe")
+	}
+	w.n -= len(p)
+	return len(p), nil
+}
+
+// TestJSONWriteFailureEscalatesExit: a report that could not be delivered must
+// not exit with a consumable verdict — exit 0 plus empty stdout would read as
+// "clean". Verified for the clean case (0 → 3) and the drift case (1 → 3):
+// worse() precedence, not a blanket overwrite.
+func TestJSONWriteFailureEscalatesExit(t *testing.T) {
+	for _, tc := range []struct{ in, want int }{
+		{exitOK, exitTransport},
+		{exitDrift, exitTransport},
+		{exitLockfile, exitLockfile}, // already worse than transport: unchanged
+	} {
+		var stderr strings.Builder
+		c := &cli{jsonOut: true, stdout: &failWriter{}, stderr: &stderr}
+		got := c.finish(c.newReport("verify"), tc.in)
+		if got != tc.want {
+			t.Fatalf("finish(%d) with failing stdout = %d, want %d", tc.in, got, tc.want)
+		}
+		if !strings.Contains(stderr.String(), "write --json report") {
+			t.Fatalf("no diagnostic on stderr: %q", stderr.String())
+		}
+	}
+	// Control (D-431 lesson: a leg asserting a guard did NOT fire needs proof it
+	// WAS armed): the same call with a working writer keeps its exit code.
+	var out, stderr strings.Builder
+	c := &cli{jsonOut: true, stdout: &out, stderr: &stderr}
+	if got := c.finish(c.newReport("verify"), exitOK); got != exitOK {
+		t.Fatalf("finish with working stdout = %d, want 0", got)
+	}
+	if out.Len() == 0 {
+		t.Fatal("working writer received no report")
+	}
+}
