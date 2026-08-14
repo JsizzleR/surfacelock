@@ -56,6 +56,8 @@ flags:
   --timeout D    per-server fetch budget (default 60s; lock/verify/diff/pin)
   --offer V      protocolVersion to offer at initialize (lock only; default ` + client.DefaultOfferedVersion + `)
   --env K=V      extra environment for stdio servers (repeatable; never recorded)
+  --json         lock/verify/diff: machine-readable report on stdout (CLI-JSON.md;
+                 exit codes unchanged)
   --warn         proxy only: forward non-prompt-text drift with a warning;
                  description/instructions changes and added tools still refuse
 
@@ -94,6 +96,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	offer := fs.String("offer", client.DefaultOfferedVersion, "protocolVersion to offer (lock only)")
 	urlFlag := fs.String("url", "", "Streamable HTTP endpoint (lock only)")
 	warn := fs.Bool("warn", false, "proxy only: forward non-prompt-text drift with a warning")
+	jsonOut := fs.Bool("json", false, "machine-readable report on stdout (lock/verify/diff)")
 	var env multiFlag
 	fs.Var(&env, "env", "extra KEY=VAL for stdio servers (repeatable)")
 	if err := fs.Parse(args[1:]); err != nil {
@@ -101,7 +104,14 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	c := &cli{stdin: stdin, stdout: stdout, stderr: stderr, file: *file, name: *name,
-		timeout: *timeout, offer: *offer, url: *urlFlag, warn: *warn, env: env, argv: fs.Args()}
+		timeout: *timeout, offer: *offer, url: *urlFlag, warn: *warn, jsonOut: *jsonOut,
+		env: env, argv: fs.Args()}
+	if c.jsonOut && (cmd == "pin" || cmd == "proxy") {
+		// Fail closed: a caller asking for the machine contract on a verb that
+		// does not emit it must not silently get the human output instead.
+		c.errorf("--json is not supported for %s", cmd)
+		return exitUsage
+	}
 
 	switch cmd {
 	case "lock":
@@ -126,6 +136,7 @@ type cli struct {
 	offer          string
 	url            string
 	warn           bool
+	jsonOut        bool
 	env            []string
 	argv           []string
 }
@@ -219,10 +230,11 @@ func (c *cli) writeLockfile(lf *surfacelock.Lockfile) error {
 }
 
 func (c *cli) lock() int {
+	rep := c.newReport("lock")
 	ref, defaultName, err := c.targetRef()
 	if err != nil {
 		c.errorf("%v", err)
-		return exitUsage
+		return c.fail(rep, exitUsage, err)
 	}
 	name := c.name
 	if name == "" {
@@ -234,31 +246,36 @@ func (c *cli) lock() int {
 		lf = surfacelock.NewLockfile()
 	} else if err != nil {
 		c.errorf("%v", err)
-		return exitLockfile
+		return c.fail(rep, exitLockfile, err)
 	}
 	if _, exists := lf.Servers[name]; exists {
-		c.errorf("entry %q already exists in %s; accepting a changed surface is pin's job", name, c.file)
-		return exitUsage
+		err := fmt.Errorf("entry %q already exists in %s; accepting a changed surface is pin's job", name, c.file)
+		c.errorf("%v", err)
+		return c.fail(rep, exitUsage, err)
 	}
 
 	surface, err := c.fetchSurface(ref)
 	if err != nil {
 		c.errorf("%v", err)
-		return exitFor(err)
+		return c.fail(rep, exitFor(err), err)
 	}
 	entry, err := surfacelock.EntryFromSurface(ref.Transport, ref.Target, ref.Args, surface)
 	if err != nil {
 		c.errorf("%v", err)
-		return exitTransport
+		return c.fail(rep, exitTransport, err)
 	}
 	lf.Servers[name] = entry
 	if err := c.writeLockfile(lf); err != nil {
 		c.errorf("write %s: %v", c.file, err)
-		return exitLockfile
+		return c.fail(rep, exitLockfile, err)
 	}
-	fmt.Fprintf(c.stdout, "locked %s: %d tools, era %s, %s\n",
-		safe(name), len(entry.Tools), safe(entry.Protocol.Era), entry.SurfaceHash)
-	return exitOK
+	n := len(entry.Tools)
+	rep.Name, rep.Tools, rep.Era, rep.SurfaceHash = name, &n, entry.Protocol.Era, entry.SurfaceHash
+	if !c.jsonOut {
+		fmt.Fprintf(c.stdout, "locked %s: %d tools, era %s, %s\n",
+			safe(name), len(entry.Tools), safe(entry.Protocol.Era), entry.SurfaceHash)
+	}
+	return c.finish(rep, exitOK)
 }
 
 func (c *cli) pin() int {
@@ -267,7 +284,7 @@ func (c *cli) pin() int {
 		c.errorf("%v", err)
 		return exitLockfile
 	}
-	names, code := c.selectEntries(lf)
+	names, code, _ := c.selectEntries(lf)
 	if code != exitOK {
 		return code
 	}
@@ -361,38 +378,47 @@ func (c *cli) proxy() int {
 }
 
 // selectEntries resolves --name (or all entries, sorted) against the lockfile.
-func (c *cli) selectEntries(lf *surfacelock.Lockfile) ([]string, int) {
+// On failure the error carries what errorf already reported, for --json callers.
+func (c *cli) selectEntries(lf *surfacelock.Lockfile) ([]string, int, error) {
 	if c.name != "" {
 		if _, ok := lf.Servers[c.name]; !ok {
-			c.errorf("no entry %q in %s; new servers are lock's job", c.name, c.file)
-			return nil, exitUsage
+			err := fmt.Errorf("no entry %q in %s; new servers are lock's job", c.name, c.file)
+			c.errorf("%v", err)
+			return nil, exitUsage, err
 		}
-		return []string{c.name}, exitOK
+		return []string{c.name}, exitOK, nil
 	}
 	if len(lf.Servers) == 0 {
-		c.errorf("%s has no entries", c.file)
-		return nil, exitLockfile
+		err := fmt.Errorf("%s has no entries", c.file)
+		c.errorf("%v", err)
+		return nil, exitLockfile, err
 	}
 	names := make([]string, 0, len(lf.Servers))
 	for n := range lf.Servers {
 		names = append(names, n)
 	}
 	sort.Strings(names)
-	return names, exitOK
+	return names, exitOK, nil
 }
 
 // compare is verify and diff: fetch live, classify drift, report. verbose=false is
 // the CI verb (quiet on success); verbose=true reports per-tool detail either way.
 func (c *cli) compare(verbose bool) int {
+	verb := "verify"
+	if verbose {
+		verb = "diff"
+	}
+	rep := c.newReport(verb)
 	lf, err := c.readLockfile()
 	if err != nil {
 		c.errorf("%v", err)
-		return exitLockfile
+		return c.fail(rep, exitLockfile, err)
 	}
-	names, code := c.selectEntries(lf)
+	names, code, selErr := c.selectEntries(lf)
 	if code != exitOK {
-		return code
+		return c.fail(rep, code, selErr)
 	}
+	rep.Servers = make(map[string]*jsonServer, len(names))
 	// (Entries were already self-consistency-checked by readLockfile → Validate.)
 	// Process every entry; a per-entry failure must NOT early-return, or an entry
 	// that already drifted would have its verdict masked by a later entry's transport
@@ -404,34 +430,44 @@ func (c *cli) compare(verbose bool) int {
 		surface, err := c.fetchSurface(refFromEntry(entry, c.env))
 		if err != nil {
 			c.errorf("%s: %v", name, err)
-			worst = worse(worst, exitFor(err))
+			code := exitFor(err)
+			worst = worse(worst, code)
+			rep.Servers[name] = &jsonServer{Outcome: outcomeFor(code), Error: safe(err.Error())}
 			continue
 		}
 		d, err := surfacelock.Diff(entry, surface)
 		if err != nil {
 			c.errorf("%s: %v", name, err)
 			worst = worse(worst, exitTransport)
+			rep.Servers[name] = &jsonServer{Outcome: outcomeFor(exitTransport), Error: safe(err.Error())}
 			continue
 		}
 		if d.Empty() {
-			if verbose {
+			n := len(entry.Tools)
+			rep.Servers[name] = &jsonServer{Outcome: "ok", Tools: &n, Era: entry.Protocol.Era}
+			if verbose && !c.jsonOut {
 				fmt.Fprintf(c.stdout, "%s: no drift (%d tools, era %s)\n", safe(name), len(entry.Tools), safe(entry.Protocol.Era))
 			}
 			continue
 		}
 		drifted = true
 		worst = worse(worst, exitDrift)
-		c.reportDrift(name, d, verbose)
+		rep.Servers[name] = &jsonServer{Outcome: "drift", Diff: diffToJSON(d)}
+		if !c.jsonOut {
+			c.reportDrift(name, d, verbose)
+		}
 	}
-	if worst == exitOK && !verbose {
-		fmt.Fprintf(c.stdout, "ok: %d server(s), no drift\n", len(names))
+	if !c.jsonOut {
+		if worst == exitOK && !verbose {
+			fmt.Fprintf(c.stdout, "ok: %d server(s), no drift\n", len(names))
+		}
+		// A hard failure (3/4/5) means the run could not complete, so it must not report
+		// "just drift" (exit 1) — but the drift that WAS found is still on stdout.
+		if drifted && worst != exitDrift {
+			fmt.Fprintf(c.stdout, "note: drift was found, but exit %d reflects a more serious failure above\n", worst)
+		}
 	}
-	// A hard failure (3/4/5) means the run could not complete, so it must not report
-	// "just drift" (exit 1) — but the drift that WAS found is still on stdout.
-	if drifted && worst != exitDrift {
-		fmt.Fprintf(c.stdout, "note: drift was found, but exit %d reflects a more serious failure above\n", worst)
-	}
-	return worst
+	return c.finish(rep, worst)
 }
 
 // worse returns the more serious of two exit codes for a multi-entry run. A run that
