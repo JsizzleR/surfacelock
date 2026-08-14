@@ -55,9 +55,11 @@ def run_verb(
     # All caller strings are validated BEFORE any path lookup or subprocess:
     # a NUL would otherwise surface as a bare ValueError from pathlib or
     # subprocess, and caller misuse must arrive as the caller-misuse type.
-    for a in (binary, *args):
-        if a is not None and (not isinstance(a, str) or "\x00" in a):
-            raise UsageError(f"invalid argument {a!r}")
+    # binary alone may be None (meaning: discover); args may not contain None.
+    if binary is not None:
+        _check_arg("binary", binary)
+    for a in args:
+        _check_arg("argument", a)
     argv = [find_binary(binary), verb, "--json", "--timeout", _go_duration(timeout), *args]
     try:
         proc = subprocess.run(argv, capture_output=True, timeout=process_budget)
@@ -163,6 +165,19 @@ def parse_lock_result(doc: Mapping[str, Any], code: int) -> LockResult:
         raise SurfacelockError(
             f"malformed surfacelock report: {exc!r}", exit_code=code
         ) from exc
+
+
+def _check_arg(what: str, a: Any) -> None:
+    """Refuse a non-string or NUL-carrying argv element as caller misuse.
+
+    The refusal message names only the TYPE for non-strings: repr of an
+    arbitrary object can itself raise (a >4300-digit int trips CPython's
+    int-to-str limit), and the guard must not fail inside its own refusal.
+    """
+    if not isinstance(a, str):
+        raise UsageError(f"invalid {what}: expected str, got {type(a).__name__}")
+    if "\x00" in a:
+        raise UsageError(f"invalid {what} {a!r}")
 
 
 def _check_seconds(name: str, value: Any) -> float:

@@ -289,3 +289,11 @@ def test_go_duration_is_exact_and_exponent_free() -> None:
 def test_nul_in_binary_param_is_usage_error() -> None:
     with pytest.raises(UsageError):
         surfacelock.verify(lockfile="x.lock", binary="bad\x00bin")
+
+
+def test_none_arg_and_unreprable_binary_are_usage_errors(tmp_path: pathlib.Path) -> None:
+    lf = str(tmp_path / "x.lock")
+    with pytest.raises(UsageError):
+        surfacelock.lock(["cmd", None], lockfile=lf)  # type: ignore[list-item]
+    with pytest.raises(UsageError):
+        surfacelock.verify(lockfile=lf, binary=10**5000)  # type: ignore[arg-type]
