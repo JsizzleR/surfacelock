@@ -1,7 +1,9 @@
-# tools.lock — format specification, version 0 (draft)
+# tools.lock — format specification, version 0
 
-**Status: draft. `lockfile_version` 1. Pre-release; every MUST below is subject to change
-until this repo tags a release.**
+**Status: shipped in surfacelock v0.1.0, `lockfile_version` 1.** This is a v0 format and
+the project is pre-1.0: the MUSTs below can still change, but no longer silently — a
+change that would make an existing lockfile read differently arrives as a
+`lockfile_version` bump, and the release notes say so.
 
 `tools.lock` is a lockfile that pins an MCP server's *tool surface*: the tool names, input
 schemas, descriptions, and server instructions an agent is told it can trust. This document
