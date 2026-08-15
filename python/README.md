@@ -2,8 +2,10 @@
 
 Typed Python bindings for [surfacelock](https://github.com/JsizzleR/surfacelock):
 programmatic `lock` / `verify` / `diff` of an MCP server's tool surface, plus the
-`surfacelock` CLI itself (each wheel bundles the platform's Go binary, so
-`uvx surfacelock` works with no separate install).
+`surfacelock` CLI itself: each wheel bundles the platform's Go binary, so installing
+the wheel gives you the console script with no separate install. The package is not on
+PyPI yet — take the wheel for your platform from the GitHub release assets. Once it is
+published, `uvx surfacelock` will work directly.
 
 ```python
 import surfacelock
