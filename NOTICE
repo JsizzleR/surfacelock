@@ -1,0 +1,15 @@
+surfacelock
+Copyright 2026 Jay Clark
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party code redistributed in the compiled surfacelock binaries — the
+release assets, the Python wheels, and the npm platform packages, each of
+which statically links its dependencies:
+
+  github.com/gowebpki/jcs — Apache License, Version 2.0.
+    RFC 8785 JSON Canonicalization Scheme. A copy of the Apache License,
+    Version 2.0 accompanies every distribution of this software in LICENSE.
+
+No other third-party code is linked in: the rest of surfacelock is the Go
+standard library.
