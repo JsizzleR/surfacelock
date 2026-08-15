@@ -1,8 +1,8 @@
 # surfacelock `--json` — machine-readable CLI output, version 1
 
-**Status: pre-release, like everything here — but this document is the contract the
-Python bindings (and any other machine consumer) parse. The human output is not a
-contract and may change freely; this shape may not.**
+**This document is the contract the Python bindings (and any other machine consumer)
+parse. The human output is not a contract and may change freely; this shape may not,
+except by the version bump described under Guarantees.**
 
 This is a CLI output contract, not part of the `tools.lock` format: SPEC.md owns the
 artifact and the exit codes; this document owns what `--json` writes to stdout.

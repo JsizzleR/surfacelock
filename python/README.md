@@ -1,7 +1,5 @@
 # surfacelock (Python)
 
-**Status: pre-release, like the repo it lives in.**
-
 Typed Python bindings for [surfacelock](https://github.com/JsizzleR/surfacelock):
 programmatic `lock` / `verify` / `diff` of an MCP server's tool surface, plus the
 `surfacelock` CLI itself (each wheel bundles the platform's Go binary, so
