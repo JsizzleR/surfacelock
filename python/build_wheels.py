@@ -22,6 +22,7 @@ import hashlib
 import io
 import pathlib
 import re
+import stat
 import sys
 import zipfile
 
@@ -59,6 +60,7 @@ def metadata(version: str) -> bytes:
             f"Version: {version}",
             "Summary: Pin and verify MCP tool surfaces — tools.lock bindings and CLI",
             "License-Expression: Apache-2.0",
+            *(f"License-File: {name}" for name in LICENSE_FILES),
             "Requires-Python: >=3.10",
             "Project-URL: Repository, https://github.com/JsizzleR/surfacelock",
             "Description-Content-Type: text/markdown",
@@ -80,6 +82,12 @@ def wheel_file(tag: str) -> bytes:
 
 ENTRY_POINTS = b"[console_scripts]\nsurfacelock = surfacelock._cli:main\n"
 
+# Redistributed with every wheel, per PEP 639: the wheel ships a statically
+# linked binary carrying Apache-2.0 third-party code, so the license text has to
+# travel with it, not merely sit in the repo. Paths are relative to
+# <dist-info>/licenses/, which is where the License-File metadata points.
+LICENSE_FILES = ("LICENSE", "NOTICE")
+
 
 def record_line(name: str, data: bytes) -> str:
     digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
@@ -97,6 +105,8 @@ def build_wheel(out_dir: pathlib.Path, version: str, tag: str, binary: pathlib.P
     entries.append((f"{dist_info}/METADATA", metadata(version), False))
     entries.append((f"{dist_info}/WHEEL", wheel_file(tag), False))
     entries.append((f"{dist_info}/entry_points.txt", ENTRY_POINTS, False))
+    for name in LICENSE_FILES:
+        entries.append((f"{dist_info}/licenses/{name}", (HERE.parent / name).read_bytes(), False))
 
     record = "\n".join(record_line(n, d) for n, d, _ in entries)
     record += f"\n{dist_info}/RECORD,,\n"
@@ -110,7 +120,13 @@ def build_wheel(out_dir: pathlib.Path, version: str, tag: str, binary: pathlib.P
             info = zipfile.ZipInfo(name, date_time=ZIP_DATE)
             info.compress_type = zipfile.ZIP_DEFLATED
             info.create_system = 3  # unix, so external_attr mode bits apply
-            info.external_attr = (0o755 if executable else 0o644) << 16
+            # S_IFREG is not decoration: pip only restores the executable bit for
+            # an entry whose recorded mode passes stat.S_ISREG, so a bare 0o755
+            # installs 0644 and every call to the bundled binary dies with
+            # PermissionError. uv is lenient about it and pip is not, which is why
+            # a uv-only install proof missed it — both measured, on one pip, with
+            # the pre-fix wheel as the control.
+            info.external_attr = ((0o755 if executable else 0o644) | stat.S_IFREG) << 16
             zf.writestr(info, data)
     path.write_bytes(buf.getvalue())
     return path

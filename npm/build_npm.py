@@ -52,9 +52,18 @@ def npm_version() -> str:
     return f"{base}-dev.{dev}" if dev is not None else base
 
 
+# Every published package carries the license text, not just the SPDX id in its
+# manifest: the platform packages redistribute a statically linked binary that
+# carries Apache-2.0 third-party code, and the launcher is published separately
+# from them.
+LICENSE_FILES = ("LICENSE", "NOTICE")
+
+
 def write_pkg(pkg_dir: pathlib.Path, manifest: dict) -> None:
     pkg_dir.mkdir(parents=True, exist_ok=True)
     (pkg_dir / "package.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    for name in LICENSE_FILES:
+        shutil.copyfile(REPO / name, pkg_dir / name)
 
 
 def main() -> None:
