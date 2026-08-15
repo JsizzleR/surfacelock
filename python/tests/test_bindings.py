@@ -160,7 +160,7 @@ def test_missing_binary_is_its_own_error(monkeypatch: pytest.MonkeyPatch) -> Non
     assert exc.value.exit_code is None
 
 
-# --- protocol-defense regressions (found by the model-diverse review): the
+# --- protocol-defense regressions (found in review): the
 # bindings must stay honest against a wrong, old, or hostile BINARY, not only
 # against servers — every case below drives a fake binary via SURFACELOCK_BIN.
 

@@ -107,7 +107,7 @@ func (v rpcView) succeeded() bool {
 // been fine on the wire; a graded cell must never silently rest on cut
 // bytes). An unreached exchange grades UNREACHED, never a verdict — an
 // unreachable server is an honest error, not conformance evidence in either
-// direction (the D-414/D-415 rule; a dead target must grade UNGRADED, not
+// direction (a dead target must grade UNGRADED, not
 // NONCONFORMANT, and must never "pass" a refusal predicate by being down).
 func (v rpcView) unreached() bool {
 	if v.transportErr != "" && v.transportErr != errSilence {

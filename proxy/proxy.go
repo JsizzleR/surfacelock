@@ -128,7 +128,8 @@ type core struct {
 	// Findings ride a background drain so the diagnostic sink can never block the
 	// verification path — finding() is called under c.mu, and a blocking write to
 	// a slow sink there would make the audit channel a participant in verification
-	// (the D-409 shape). finding() does a non-blocking send and drops (counted) on
+	// (a diagnostic that can block is a participant, not an observer). finding()
+	// does a non-blocking send and drops (counted) on
 	// backpressure; drainFindings owns the actual writes.
 	findCh      chan string
 	findDone    chan struct{}
@@ -258,7 +259,7 @@ func (c *core) setTransport()    { c.mu.Lock(); c.outcome.Transport = true; c.mu
 // finding stages one sanitized diagnostic line for the drain goroutine. It NEVER
 // blocks — a full channel (slow sink) drops the line and counts it — so a finding
 // emitted under c.mu (applyVerdictLocked) cannot make the audit sink a participant
-// in verification (D-409). findCh is never closed, so a late finding() from a
+// in verification. findCh is never closed, so a late finding() from a
 // leaked client goroutine is a safe drop, never a send-on-closed panic.
 func (c *core) finding(format string, args ...any) {
 	line := "surfacelock[" + c.cfg.Name + "]: " + surfacelock.Sanitize(fmt.Sprintf(format, args...)) + "\n"

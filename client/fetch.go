@@ -76,7 +76,7 @@ type toolsListPage struct {
 // failure (cap, cursor loop, inadmissible page) must be terminal — a second
 // classic enumeration would let a hostile hybrid serve different bytes over
 // the other flow and re-classify a deliberate inadmissibility as a transport
-// failure (Codex@max finding, phase-2 gate). INVARIANT: nothing at or after
+// failure (a review finding on the phase-2 gate). INVARIANT: nothing at or after
 // the commit point may construct or wrap an errPreCommit — errors.As is
 // ancestry-based, not phase-aware, so a post-commit error carrying this marker
 // anywhere in its chain would re-open the fallback it exists to close.
@@ -170,7 +170,7 @@ func metaEnvelope(offered string) map[string]any {
 
 // resultFields decodes a JSON-RPC result object with EXACT keys — the shared
 // surfacelock.DecodeExact discipline (duplicate keys refused via canonicalization,
-// case-variant aliases of consumed keys refused; the D-346 shape).
+// case-variant aliases of consumed keys refused; the case-variance shape).
 func resultFields(raw json.RawMessage, what string, keys ...string) (map[string]json.RawMessage, error) {
 	return surfacelock.DecodeExact(raw, what, keys...)
 }

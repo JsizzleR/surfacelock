@@ -156,7 +156,7 @@ func parseFrame(raw []byte) (*frame, error) {
 // the string key. So a request id `1` and a request id `"1"` share the key
 // `n:1`, and the client-side duplicate-in-flight guard refuses the second —
 // there is never both `n:1` and `s:1` pending for one response to fall through
-// between (the bypass Codex@max found in the two-key scheme this replaces). An
+// between (the bypass found in the two-key scheme this replaces). An
 // id that is neither string nor number has no reliable identity and is refused.
 func idKey(idRaw json.RawMessage) (string, error) {
 	// json.Number accepts BOTH a bare number (42) and a quoted numeric string

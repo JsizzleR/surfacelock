@@ -713,7 +713,7 @@ func TestStatelessEraMismatchRefusedAtRequest(t *testing.T) {
 	h := newHarness(t, entry, false)
 	h.client(statelessListReq(1, "2027-01-01", ""))
 	// Refused before the upstream sees it: the verdict is decidable from the
-	// request alone, so the doomed exchange never starts (D-414 ordering).
+	// request alone, so the doomed exchange never starts (verdict before action).
 	code, msg := errorCodeOf(t, h.expectClient())
 	if code != codeDriftRefused || !strings.Contains(msg, "era") {
 		t.Fatalf("want request-time era refusal, got %d %q", code, msg)
@@ -929,10 +929,10 @@ func TestWarnDriftedPageThenCleanFinalPageNoFalseCorruption(t *testing.T) {
 	}
 }
 
-// --- regressions for the model-diverse review findings ---
+// --- regressions for the review findings ---
 
 func TestIdAliasCannotForwardUnverified(t *testing.T) {
-	// Codex@max Q2 / panel Finding 5: the two-key {s:1, n:1} scheme let a second
+	// Review finding: the two-key {s:1, n:1} scheme let a second
 	// server frame with id "1" fall through from a consumed surface-bearing
 	// pending to a DISTINCT non-surface pending (numeric id 1) and forward
 	// unverified. Normalizing every id to one key closes it: a client request 1
@@ -1119,7 +1119,7 @@ func (b *blockingWriter) Write(p []byte) (int, error) {
 }
 
 func TestFindingsSinkBlockedDoesNotStallVerification(t *testing.T) {
-	// The D-409 gating leg: the diagnostic sink is a participant only if it can
+	// The gating leg: the diagnostic sink is a participant only if it can
 	// block the observed path. Here the Findings sink is wedged for the whole
 	// session, yet verification must still refuse drift and deliver the refusal
 	// to the client (writeFrame is a separate channel from findings).
@@ -1187,7 +1187,7 @@ func TestFindingsSinkBlockedDoesNotStallVerification(t *testing.T) {
 }
 
 func TestIdNumericSpellingsCollapseToOneKey(t *testing.T) {
-	// Codex re-verify Q5: ids 5 and 5.0 must share one pending key — a client
+	// Review finding: ids 5 and 5.0 must share one pending key — a client
 	// comparing ids by value treats them as equal, so distinct keys would let a
 	// response for one correlate to the other's pending request unverified.
 	entry := entryFor(t, eraClassic, surfacelock.FlowClassic, "", toolA)

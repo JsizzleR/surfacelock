@@ -23,12 +23,13 @@ import (
 
 // fakeClassic is a configurable 2025-11-25 Streamable-HTTP fake. The zero
 // config is CTRL-GOOD; the planted* knobs are CTRL-BAD's defects, each shaped
-// to isolate to its own predicate cell (the D-400 masking rule).
+// to isolate to its own predicate cell (guarded steps in sequence mask each
+// other's mutants).
 type fakeClassic struct {
 	// S1's planted defect is modeled as a server that validates the
 	// MCP-Protocol-Version header but forgot the session check: S1.nosession
 	// (header, no session) is then SERVED while H3.cold (neither) is still
-	// refused — each planted defect gets its own cell (the D-400 masking rule;
+	// refused — each planted defect gets its own cell (else they mask each other;
 	// PREDICATES.md CTRL-BAD, amended pre-probe).
 	plantedEchoOffered   bool // H2: echo any offered version verbatim
 	plantedIgnoreSession bool // S1: mint a session id but never require it
@@ -232,7 +233,7 @@ func TestControlBadFakeFlagsExactlyThePlantedDefects(t *testing.T) {
 }
 
 // A dead target must grade UNGRADED and fail an era claim — silence is not
-// conformance (the D-418 rule applied to the matrix).
+// conformance (silence is not evidence, applied to the matrix).
 func TestUnreachableTargetIsUngradedNeverConformant(t *testing.T) {
 	rep, err := Check(context.Background(), "dead", NewHTTPDialer("http://127.0.0.1:1/mcp", nil, nil), "2025-11-25")
 	if err != nil {
@@ -290,7 +291,7 @@ func TestMatrixRenderers(t *testing.T) {
 // inapplicable tools/list. The other direction is CTRL-BAD above: a fake that
 // DOES advertise tools keeps its T1 defect flagged, so the gate cannot
 // swallow a real tools server's violation (the two directions mask each
-// other's mutants — each needs its own leg, D-400).
+// other's mutants — each needs its own leg).
 func TestToolslessServerGetsNAToolsCellsNotViolations(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var in struct {

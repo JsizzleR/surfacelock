@@ -26,7 +26,7 @@ import (
 	"time"
 )
 
-// Wire bounds. Deliberately generous for real servers (the toolslock-p0 corpus
+// Wire bounds. Deliberately generous for real servers (the measured corpus
 // maxed at ~100 KiB per tools/list) and small enough that a hostile target
 // cannot run the prober out of memory.
 const (
@@ -269,7 +269,7 @@ func sseIDMatches(payload string, id int64) bool {
 }
 
 // rpcIDMatches accepts the measured echo tolerances: numeric ids may come back
-// as strings (the toolslock-p0 corpus fact).
+// as strings (a measured corpus fact).
 func rpcIDMatches(raw json.RawMessage, id int64) bool {
 	if len(raw) == 0 {
 		return false

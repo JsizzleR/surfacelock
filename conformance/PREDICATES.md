@@ -1,11 +1,12 @@
 # Era-conformance predicates — PRE-REGISTERED
 
-This document is committed BEFORE the first probe runs (the D-310 discipline the
-toolslock-p0 spike followed with CRITERION.md): the matrix is measurement against
+This document is committed BEFORE the first probe runs, the same pre-registration
+discipline the earlier tool-surface stability study followed: the matrix is
+measurement against
 these predicates, and any predicate added or changed after probing began must say
 so in its text. The sources are the protocol revisions' own changelogs and
 normative sections (modelcontextprotocol.io/specification/<rev>/changelog, read
-2026-08-13) plus facts measured previously against real servers (the toolslock-p0
+2026-08-13) plus facts measured previously against real servers (that study's
 corpus; the mcp==2.0.0b1 SDK; the claude CLI 2.1.229).
 
 ## What "conformant to era E" means here
@@ -218,9 +219,9 @@ Per (target, era): **CONFORMANT** — every applicable MUST cell passed;
 the observed bytes' summary); plus the `unreached(...)` set, always printed.
 A target that negotiates several eras is graded once per era it demonstrably
 speaks. Exclusions (auth-walled, dead endpoint, eager-backend) are recorded with
-their measured reason, like the toolslock-p0 corpus did.
+their measured reason, as that study's corpus did.
 
-## Validity controls (D-292: verdicts are void without both)
+## Validity controls (verdicts are void without both)
 
 - **CTRL-BAD** (hermetic, in-process): a fake claiming 2025-11-25 with FOUR
   planted violations — (a) echoes any offered version verbatim (H2), (b) mints a
@@ -232,17 +233,17 @@ their measured reason, like the toolslock-p0 corpus did.
   H2 cross-grade flag plus a NONCONFORMANT verdict when the fake is graded at
   the era it echoed, while (b)/(c)/(d) surface as MUST violations at the
   claimed era. The fake refuses pre-handshake `tools/list` so that (b) isolates
-  to S1 without also tripping H3 — each planted defect gets its own cell, the
-  D-400 masking rule applied to the control itself.)*
+  to S1 without also tripping H3 — each planted defect gets its own cell, since
+  guarded steps in sequence mask each other's defects, the control included.)*
 - **CTRL-GOOD** (hermetic, in-process): a fake implementing 2025-11-25 correctly
   — the harness MUST report CONFORMANT with zero violations.
-- **CTRL-SDK** (live): an official-SDK server (the toolslock-p0 recipe, SDK
+- **CTRL-SDK** (live): an official-SDK server (that study's recipe, SDK
   pinned) MUST grade CONFORMANT or CONFORMANT\* for the era it negotiates; any
   MUST violation it shows is presumed a harness bug until shown otherwise, and
   the resolution is recorded here.
 
 ## First targets
 
-Bastle's own faces (the only known 2026-07-28 speakers), then the toolslock-p0
-corpus: hosted rows re-probed live; pinned local rows re-launched at their
+Bastle's own faces (the only known 2026-07-28 speakers), then the stability
+study's corpus: hosted rows re-probed live; pinned local rows re-launched at their
 recorded pins (SDK pinned as part of the pin, per the corpus's own finding).

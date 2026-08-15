@@ -124,7 +124,7 @@ func TestJSONLifecycle(t *testing.T) {
 	}
 }
 
-// TestJSONDriftBesideTransportFailure is the D-414/D-418 property on the wire:
+// TestJSONDriftBesideTransportFailure is the honest-verdict property on the wire:
 // the exit code carries the worst outcome (transport), but the drift that WAS
 // found is still fully present in its own server object.
 func TestJSONDriftBesideTransportFailure(t *testing.T) {
@@ -300,7 +300,7 @@ func TestJSONWriteFailureEscalatesExit(t *testing.T) {
 			t.Fatalf("no diagnostic on stderr: %q", stderr.String())
 		}
 	}
-	// Control (D-431 lesson: a leg asserting a guard did NOT fire needs proof it
+	// Control (a leg asserting a guard did NOT fire needs proof it
 	// WAS armed): the same call with a working writer keeps its exit code.
 	var out, stderr strings.Builder
 	c := &cli{jsonOut: true, stdout: &out, stderr: &stderr}

@@ -446,7 +446,7 @@ func TestFetchPinnedFlowNeverCrosses(t *testing.T) {
 }
 
 // A case-variant alias of a consumed result key is a parser differential (the
-// D-346 shape): refuse it in BOTH flows rather than hash one of two values.
+// case-variance shape): refuse it in BOTH flows rather than hash one of two values.
 func TestFetchRefusesCaseVariantResultKeys(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var in rpcIn

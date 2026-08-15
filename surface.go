@@ -234,7 +234,7 @@ func hashTool(rawTool json.RawMessage) (*Tool, error) {
 		return nil, inadmissible("tool is not valid UTF-8")
 	}
 	// Refuse a tool object carrying a case-variant of a key this package reads by
-	// exact name — the D-346 aliasing shape, INSIDE the tool object, where the page
+	// exact name — the case-variant aliasing shape, INSIDE the tool object, where the page
 	// and handshake guards do not reach. Applied here (the shared shape validator)
 	// so Admit AND Validate refuse it: a confusable tool never enters the lockfile
 	// and a live one is inadmissible, never forwarded/classified/pinned.
@@ -344,7 +344,7 @@ func foldKey(s string) string {
 
 // checkAliasedToolKeys refuses a tool object whose keys would make an exact-case
 // reader (this package) and a case-folding reader (a client's encoding/json into
-// a struct) disagree — the D-346 shape, INSIDE the tool object, where the page
+// a struct) disagree — the case-variance shape, INSIDE the tool object, where the page
 // and handshake guards do not reach (SPEC.md §6). At ANY depth it refuses two
 // keys that collide case-insensitively (an unresolvable ambiguity for any folding
 // consumer) and a lone case-variant of `description`/`title` (prompt text the

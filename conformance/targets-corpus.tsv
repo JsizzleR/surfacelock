@@ -1,5 +1,5 @@
-# Era-conformance corpus targets — generated from the toolslock-p0 corpus
-# (spikes/toolslock-p0/corpus.tsv) + each server's negotiated revision
+# Era-conformance corpus targets — generated from the tool-surface stability
+# study's corpus + each server's negotiated revision
 # (results.tsv proto column, measured 2026-08-12). Exclusions and their
 # measured reasons live in the spike corpus; controls are not corpus rows.
 # name	kind	era	address	env	auth_env
