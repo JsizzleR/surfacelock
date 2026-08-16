@@ -1,8 +1,5 @@
 target	kind	era	verdict	H1.init	H2.newer	H3.cold	D1.discover	D2.nometa	V1.header	V1.noheader	V2.mismatch	S1.session	S2.nosession	T1.tools	T2.badcursor	B1.batch	C1.cacheable	R1.resulttype	G1.get	I1.identity
 astro-docs	http	2025-06-18	CONFORMANT*	pass	pass	obs	pass	-	pass	obs	-	na	-	pass	should!	pass	-	-	obs	pass
-bastle-bridge-legacy	http	2026-07-28	CONFORMANT*	pass	-	pass	pass	pass	-	-	pass	-	pass	pass	should!	pass	pass	pass	obs	pass
-bastle-bridge-modern	http	2026-07-28	CONFORMANT*	pass	-	pass	pass	pass	-	-	pass	-	pass	pass	should!	pass	pass	pass	obs	pass
-bastle-okffacade	http	2026-07-28	CONFORMANT	pass	-	na	pass	pass	-	-	na	-	pass	na	na	pass	na	pass	obs	pass
 cloudflare-docs	http	2025-11-25	CONFORMANT*	pass	pass	obs	pass	-	pass	obs	-	na	-	pass	should!	pass	-	-	obs	pass
 coingecko	http	2025-11-25	CONFORMANT*	pass	pass	obs	pass	-	pass	obs	-	pass	-	pass	should!	pass	-	-	obs	pass
 context7-remote	http	2025-11-25	CONFORMANT*	pass	pass	obs	pass	-	pass	obs	-	na	-	pass	should!	pass	-	-	obs	pass
@@ -10,6 +7,9 @@ deepwiki	http	2025-11-25	CONFORMANT*	pass	pass	obs	pass	-	pass	obs	-	na	-	pass	s
 gitmcp-docs	http	2025-03-26	NONCONFORMANT	pass	pass	obs	pass	-	-	-	-	pass	-	pass	should!	MUST!	-	-	obs	pass
 gitmcp-mcp-repo	http	2025-03-26	NONCONFORMANT	pass	pass	obs	pass	-	-	-	-	pass	-	pass	should!	MUST!	-	-	obs	pass
 huggingface	http	2025-11-25	NONCONFORMANT	pass	pass	obs	pass	-	pass	obs	-	pass	-	pass	should!	MUST!	-	-	obs	pass
+local-bridge-legacy	http	2026-07-28	CONFORMANT*	pass	-	pass	pass	pass	-	-	pass	-	pass	pass	should!	pass	pass	pass	obs	pass
+local-bridge-modern	http	2026-07-28	CONFORMANT*	pass	-	pass	pass	pass	-	-	pass	-	pass	pass	should!	pass	pass	pass	obs	pass
+local-facade	http	2026-07-28	CONFORMANT	pass	-	na	pass	pass	-	-	na	-	pass	na	na	pass	na	pass	obs	pass
 mslearn	http	2025-06-18	NONCONFORMANT	pass	pass	obs	pass	-	pass	obs	-	MUST!	-	pass	should!	pass	-	-	obs	pass
 py-arxiv	stdio	2025-11-25	CONFORMANT*	pass	pass	obs	pass	-	na	-	-	na	-	pass	should!	pass	-	-	-	pass
 py-awsdocs	stdio	2025-11-25	CONFORMANT*	pass	pass	obs	pass	-	na	-	-	na	-	pass	should!	pass	-	-	-	pass

@@ -167,9 +167,9 @@ SHOULD; recorded verbatim in the matrix either way.
 
 ## Post-probe amendments (each dated; probing had begun, so each says so)
 
-- **Capability gating (2026-08-13, after the bastle-faces run).** `tools/list`
+- **Capability gating (2026-08-13, after the local-faces run).** `tools/list`
   belongs to the `tools` capability; a server that does not advertise it
-  (bastle's okffacade is resources-only) correctly refuses the method with
+  (the local facade is resources-only) correctly refuses the method with
   -32601, and grading that refusal as a violation manufactures a finding out
   of the prober's own inapplicable request. When the era-authoritative
   identity exchange (D1's discover result, or H1's initialize result) carries
@@ -178,6 +178,18 @@ SHOULD; recorded verbatim in the matrix either way.
   graded: a JSON-RPC batch must be refused as a batch regardless of the inner
   methods. The statelessness/envelope/identity cells (D1, D2, H1, S2, R1, G1,
   I1) are unaffected.
+- **Redaction (2026-08-15, after grading).** The `local-facade` capture's
+  server-advertised `serverInfo.name` was replaced with `local-facade` at the
+  operator's request; the three local targets were likewise renamed from the
+  names their runtime uses. This is a REDACTION, not a re-capture, and it is
+  recorded here because a capture that has been edited must say so — the whole
+  point of retaining captures is that verdicts are re-derivable from them. It
+  touches exactly one graded input, I1, which grades `serverInfo.name` only for
+  NON-EMPTINESS and then records the string verbatim: the verdict is unchanged
+  and the matrix now prints the redacted string. Every other cell reads bytes
+  this redaction does not touch, and re-grading before and after produced
+  identical verdicts for all 48 targets.
+
 - **Stateless request headers (2026-08-13, same run).** 2026-07-28 carries the
   protocol version in the `MCP-Protocol-Version` header as well as `_meta`,
   and requires `Mcp-Method` on Streamable HTTP POSTs (SEP-2243). The prober
@@ -244,6 +256,6 @@ their measured reason, as that study's corpus did.
 
 ## First targets
 
-Bastle's own faces (the only known 2026-07-28 speakers), then the stability
+The locally-run faces (the only known 2026-07-28 speakers), then the stability
 study's corpus: hosted rows re-probed live; pinned local rows re-launched at their
 recorded pins (SDK pinned as part of the pin, per the corpus's own finding).

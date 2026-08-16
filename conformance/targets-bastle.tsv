@@ -1,9 +1,0 @@
-# Bastle's own MCP faces — the only known 2026-07-28 speakers (probed first, per
-# PREDICATES.md). Recipe: mac-native daemon (--isolation host) serving the pushed
-# examples/okf-demo bundle at /_okf/okf-demo/mcp behind a scoped bearer token;
-# bastle mcp-bridge on 7801 (modern child: examples/mcp-stdio-echo, mcp==2.0.0b1)
-# and 7802 (--protocol legacy, child: npx server-memory@2026.7.4).
-# name	kind	era	address	env	auth_env
-bastle-okffacade	http	2026-07-28	https://127.0.0.1:7443/_okf/okf-demo/mcp	-	CONF_TOK
-bastle-bridge-modern	http	2026-07-28	http://127.0.0.1:7801/mcp	-	-
-bastle-bridge-legacy	http	2026-07-28	http://127.0.0.1:7802/mcp	-	-

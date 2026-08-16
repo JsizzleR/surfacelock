@@ -1,0 +1,118 @@
+{
+  "target": "local-facade",
+  "kind": "http",
+  "era": "2026-07-28",
+  "taken_at": "2026-08-14T16:51:48Z",
+  "exchanges": [
+    {
+      "probe": "D1.discover",
+      "request": "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"server/discover\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/clientCapabilities\":{},\"io.modelcontextprotocol/clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}",
+      "http_verb": "POST",
+      "req_hdr": {
+        "MCP-Protocol-Version": "2026-07-28",
+        "Mcp-Method": "server/discover"
+      },
+      "status": 200,
+      "resp_hdr": {
+        "Content-Type": "application/json"
+      },
+      "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"},\"capabilities\":{\"resources\":{\"listChanged\":false,\"subscribe\":false}},\"resultType\":\"complete\",\"serverInfo\":{\"name\":\"local-facade\",\"version\":\"1\"},\"supportedVersions\":[\"2026-07-28\"]}}\n",
+      "message": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"},\"capabilities\":{\"resources\":{\"listChanged\":false,\"subscribe\":false}},\"resultType\":\"complete\",\"serverInfo\":{\"name\":\"local-facade\",\"version\":\"1\"},\"supportedVersions\":[\"2026-07-28\"]}}\n"
+    },
+    {
+      "probe": "D2.nometa",
+      "request": "{\"id\":2,\"jsonrpc\":\"2.0\",\"method\":\"server/discover\",\"params\":{}}",
+      "http_verb": "POST",
+      "req_hdr": {
+        "MCP-Protocol-Version": "2026-07-28",
+        "Mcp-Method": "server/discover"
+      },
+      "status": 200,
+      "resp_hdr": {
+        "Content-Type": "application/json"
+      },
+      "body": "{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-32602,\"message\":\"params._meta must carry the reserved protocol-version, client-info and client-capabilities envelope keys\"}}\n",
+      "message": "{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-32602,\"message\":\"params._meta must carry the reserved protocol-version, client-info and client-capabilities envelope keys\"}}\n"
+    },
+    {
+      "probe": "H1.init",
+      "request": "{\"id\":3,\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"params\":{\"capabilities\":{},\"clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"protocolVersion\":\"2025-11-25\"}}",
+      "http_verb": "POST",
+      "status": 200,
+      "resp_hdr": {
+        "Content-Type": "application/json"
+      },
+      "body": "{\"jsonrpc\":\"2.0\",\"id\":3,\"error\":{\"code\":-32601,\"message\":\"this endpoint speaks the 2026-07-28 stateless MCP protocol; the initialize handshake was removed (SEP-2575) \u2014 use server/discover\"}}\n",
+      "message": "{\"jsonrpc\":\"2.0\",\"id\":3,\"error\":{\"code\":-32601,\"message\":\"this endpoint speaks the 2026-07-28 stateless MCP protocol; the initialize handshake was removed (SEP-2575) \u2014 use server/discover\"}}\n"
+    },
+    {
+      "probe": "H3.cold",
+      "request": "{\"id\":10,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/clientCapabilities\":{},\"io.modelcontextprotocol/clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}",
+      "http_verb": "POST",
+      "req_hdr": {
+        "MCP-Protocol-Version": "2026-07-28",
+        "Mcp-Method": "tools/list"
+      },
+      "status": 200,
+      "resp_hdr": {
+        "Content-Type": "application/json"
+      },
+      "body": "{\"jsonrpc\":\"2.0\",\"id\":10,\"error\":{\"code\":-32601,\"message\":\"unsupported method (this facade is read-only: server/discover, resources/list, resources/read)\"}}\n",
+      "message": "{\"jsonrpc\":\"2.0\",\"id\":10,\"error\":{\"code\":-32601,\"message\":\"unsupported method (this facade is read-only: server/discover, resources/list, resources/read)\"}}\n"
+    },
+    {
+      "probe": "T2.badcursor",
+      "request": "{\"id\":11,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/clientCapabilities\":{},\"io.modelcontextprotocol/clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"},\"cursor\":\"surfacelock-era-invalid-cursor\"}}",
+      "http_verb": "POST",
+      "req_hdr": {
+        "MCP-Protocol-Version": "2026-07-28",
+        "Mcp-Method": "tools/list"
+      },
+      "status": 200,
+      "resp_hdr": {
+        "Content-Type": "application/json"
+      },
+      "body": "{\"jsonrpc\":\"2.0\",\"id\":11,\"error\":{\"code\":-32601,\"message\":\"unsupported method (this facade is read-only: server/discover, resources/list, resources/read)\"}}\n",
+      "message": "{\"jsonrpc\":\"2.0\",\"id\":11,\"error\":{\"code\":-32601,\"message\":\"unsupported method (this facade is read-only: server/discover, resources/list, resources/read)\"}}\n"
+    },
+    {
+      "probe": "B1.batch",
+      "request": "[{\"id\":12,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/clientCapabilities\":{},\"io.modelcontextprotocol/clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}},{\"id\":13,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/clientCapabilities\":{},\"io.modelcontextprotocol/clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}]",
+      "http_verb": "POST",
+      "req_hdr": {
+        "MCP-Protocol-Version": "2026-07-28",
+        "Mcp-Method": "tools/list"
+      },
+      "status": 200,
+      "resp_hdr": {
+        "Content-Type": "application/json"
+      },
+      "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"JSON-RPC batching is not supported\"}}\n",
+      "message": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"JSON-RPC batching is not supported\"}}\n"
+    },
+    {
+      "probe": "V2.mismatch",
+      "request": "{\"id\":14,\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/clientCapabilities\":{},\"io.modelcontextprotocol/clientInfo\":{\"name\":\"surfacelock-conformance\",\"version\":\"0.1\"},\"io.modelcontextprotocol/protocolVersion\":\"2024-11-05\"}}}",
+      "http_verb": "POST",
+      "req_hdr": {
+        "MCP-Protocol-Version": "2024-11-05",
+        "Mcp-Method": "tools/list"
+      },
+      "status": 200,
+      "resp_hdr": {
+        "Content-Type": "application/json"
+      },
+      "body": "{\"jsonrpc\":\"2.0\",\"id\":14,\"error\":{\"code\":-32022,\"message\":\"Unsupported protocol version\",\"data\":{\"requested\":\"2024-11-05\",\"supported\":[\"2026-07-28\"]}}}\n",
+      "message": "{\"jsonrpc\":\"2.0\",\"id\":14,\"error\":{\"code\":-32022,\"message\":\"Unsupported protocol version\",\"data\":{\"requested\":\"2024-11-05\",\"supported\":[\"2026-07-28\"]}}}\n"
+    },
+    {
+      "probe": "G1.get",
+      "http_verb": "GET",
+      "status": 405,
+      "resp_hdr": {
+        "Content-Type": "text/plain; charset=utf-8"
+      },
+      "body": "the OKF MCP facade endpoint accepts POST only\n"
+    }
+  ]
+}

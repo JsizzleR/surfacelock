@@ -286,7 +286,7 @@ func TestMatrixRenderers(t *testing.T) {
 }
 
 // The capability gate (PREDICATES.md "Capability gating"): a resources-only
-// server — bastle's okffacade shape — must get na(no-tools-capability) on the
+// server — the local facade's shape — must get na(no-tools-capability) on the
 // tools-probed cells, never violations manufactured from the prober's own
 // inapplicable tools/list. The other direction is CTRL-BAD above: a fake that
 // DOES advertise tools keeps its T1 defect flagged, so the gate cannot

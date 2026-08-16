@@ -1,0 +1,11 @@
+# Locally-run MCP faces — the only known 2026-07-28 speakers in this corpus, and so
+# probed first (per PREDICATES.md). Three shapes from one self-hosted runtime: a
+# resources-only HTTP facade, and a stdio-to-HTTP bridge run twice — once with a
+# modern child (an official-SDK server at mcp==2.0.0b1) and once in its legacy
+# compatibility mode (child: npx server-memory@2026.7.4). The addresses are loopback
+# and the runtime behind them is not what this corpus measures; what it measures is
+# the wire behaviour recorded in the captures.
+# name	kind	era	address	env	auth_env
+local-facade	http	2026-07-28	https://127.0.0.1:7443/mcp	-	CONF_TOK
+local-bridge-modern	http	2026-07-28	http://127.0.0.1:7801/mcp	-	-
+local-bridge-legacy	http	2026-07-28	http://127.0.0.1:7802/mcp	-	-
