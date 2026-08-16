@@ -1,6 +1,6 @@
 # tools.lock — format specification, version 0
 
-**Status: shipped in surfacelock v0.1.0, `lockfile_version` 1.** This is a v0 format and
+**Status: shipped in surfacelock v0.2.0, `lockfile_version` 1.** This is a v0 format and
 the project is pre-1.0: the MUSTs below can still change, but no longer silently — a
 change that would make an existing lockfile read differently arrives as a
 `lockfile_version` bump, and the release notes say so.
