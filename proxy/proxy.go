@@ -197,7 +197,7 @@ func Run(ctx context.Context, cfg Config, clientIn io.Reader, clientOut io.Write
 		case "stdio":
 			// See the Headers field: refused rather than dropped.
 			if len(cfg.Headers) > 0 {
-				err = fmt.Errorf("Headers apply to an http upstream; entry %q is stdio (a stdio upstream carries credentials in Env)", cfg.Entry.Transport)
+				err = fmt.Errorf("Headers apply to an http upstream; entry %q is stdio (a stdio upstream carries credentials in Env)", cfg.Name)
 				break
 			}
 			backend, err = newStdioBackend(cfg.Entry.Target, cfg.Entry.Args, cfg.Env, cfg.ChildStderr)

@@ -114,6 +114,16 @@ func newHTTPSession(url string, pageCap int, injected *http.Client, headers surf
 	c := injected
 	if c == nil {
 		c = &http.Client{CheckRedirect: refuseRedirect}
+	} else if len(headers) > 0 && c.CheckRedirect == nil {
+		// AN INJECTED CLIENT DOES NOT GET TO OPT OUT OF THIS. Ref.HTTPClient
+		// exists so a caller can pin a DialContext or a transport; it is not a
+		// way to re-enable redirect-following while carrying a credential. A
+		// shallow copy keeps everything the caller chose and adds only the
+		// policy — the caller's own CheckRedirect, if they set one, is left
+		// alone, because then they have made the decision explicitly.
+		cp := *c
+		cp.CheckRedirect = refuseRedirect
+		c = &cp
 	}
 	// CLONED: the caller keeps its map. Without this a mutation after Validate
 	// both defeats the validation and races the goroutines reading it.

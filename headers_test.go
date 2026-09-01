@@ -26,6 +26,11 @@ func TestHeadersValidateRefusesInjectionAndBadNames(t *testing.T) {
 		{"blank value", Headers{"X-A": ""}, "blank value"},
 		{"whitespace-only value", Headers{"X-A": "   "}, "blank value"},
 		{"reserved: framing", Headers{"Content-Type": "text/plain"}, "may not be set"},
+		{"reserved: the transport's own UA", Headers{"User-Agent": "mine/1"}, "may not be set"},
+		{"reserved: content coding", Headers{"Accept-Encoding": "identity"}, "may not be set"},
+		{"reserved: SSE resume state", Headers{"Last-Event-ID": "42"}, "may not be set"},
+		{"reserved: hop-by-hop", Headers{"Connection": "close"}, "may not be set"},
+		{"reserved: hop-by-hop upgrade", Headers{"Upgrade": "websocket"}, "may not be set"},
 		{"reserved: negotiation", Headers{"Accept": "text/plain"}, "may not be set"},
 		{"reserved: session state", Headers{"Mcp-Session-Id": "pinned"}, "may not be set"},
 		{"reserved: the negotiated era", Headers{"MCP-Protocol-Version": "2024-11-05"}, "may not be set"},
@@ -118,30 +123,26 @@ func TestHeadersCloneIsIndependent(t *testing.T) {
 	}
 }
 
-func TestHeadersApplyIsOverriddenByTheProtocolsOwnHeaders(t *testing.T) {
+func TestHeadersApplyIsOverriddenByALaterSet(t *testing.T) {
 	// The ordering property the whole flag rests on: Apply runs FIRST and the
 	// transport's own Set calls run after, so an operator cannot displace
 	// session state or framing. A mutant that moved Apply after them would make
 	// this fail on all three names.
-	// User-Agent rather than the protocol names: those are REFUSED outright now
-	// (reservedNames), because ordering cannot make an intentional ABSENCE win
-	// — on the initialize request the transport has no session id or era to
-	// Set, so there is nothing there to outrank a static one. This leg is the
-	// SECOND line of defence, on a name the transport sets unconditionally and
-	// does not reserve.
+	// This tests what Apply DOES — a later Set wins — and nothing more. It is
+	// deliberately NOT presented as a defence: every header the transport sets
+	// is reserved and refused by Validate, and a protocol header set
+	// CONDITIONALLY would be absent exactly when it mattered, which ordering
+	// cannot fix. Validate is the mechanism; this is the mechanism's shape.
 	req := httptest.NewRequest(http.MethodPost, "http://example/mcp", nil)
 	Headers{
-		"User-Agent":    "operator-chosen/9",
+		"X-Overwritten": "caller",
 		"Authorization": "Bearer t",
 	}.Apply(req)
-	// Exactly what the transports do after calling Apply.
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "surfacelock/0.1")
+	req.Header.Set("X-Overwritten", "transport")
 
 	for _, tc := range []struct{ name, want string }{
-		{"User-Agent", "surfacelock/0.1"},
-		{"Content-Type", "application/json"},
-		{"Authorization", "Bearer t"}, // the one the transport never sets survives
+		{"X-Overwritten", "transport"},
+		{"Authorization", "Bearer t"}, // the one nothing sets afterwards survives
 	} {
 		if got := req.Header.Get(tc.name); got != tc.want {
 			t.Errorf("%s = %q, want %q", tc.name, got, tc.want)

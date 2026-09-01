@@ -62,30 +62,32 @@ it from an environment variable at startup; both repeat.
 
 What is enforced rather than documented:
 
-- **A credential is never written to `tools.lock`.** surfacelock does not put a
-  header into the artifact — and, because a *server* can echo what you sent it
-  back into its own `instructions` or a tool description, which a lockfile
-  records verbatim, writing is REFUSED outright if the rendered bytes contain
-  a value you supplied as a header. Refused rather than redacted: a redacted
-  artifact would carry a `surface_hash` that no longer describes what the server
-  served.
+- **surfacelock never puts a header into `tools.lock`** — and because a *server*
+  can echo what you sent it back into its own `instructions` or a tool
+  description, which a lockfile records verbatim, `lock` and `pin` REFUSE to
+  write when the rendered bytes contain a value you supplied as a header.
+  Refused rather than redacted: a redacted artifact would carry a
+  `surface_hash` that no longer describes what the server served. That scan
+  matches a value whole and skips values under 8 bytes, so it is a guard with
+  stated limits, not a guarantee that no credential can ever reach an artifact.
 - **A redirect is never followed.** `net/http` strips only six credential header
   names, and only across hostnames — so a bearer survives a redirect to a
   subdomain, to another port, and from https to http, while a vendor name like
   `X-Api-Key` survives to anywhere at all. The upstream chooses the `Location`,
   and the upstream is what a proxy exists to distrust. A `3xx` is reported as
   the transport failure it is.
-- **Names the protocol owns cannot be set.** `Content-Type`, `Accept`,
-  `Mcp-Session-Id` and `MCP-Protocol-Version` are refused, not merely
-  outranked: the transport sets the last two only when it HAS them, so on the
-  handshake — the request that decides the dialect — a static value would go
-  out unopposed. `Host`, `Content-Length`, `Transfer-Encoding` and `Trailer`
-  are refused too, because `net/http` derives them and setting one is a silent
-  no-op.
+- **Names the transport owns cannot be set.** `Content-Type`, `Accept`,
+  `Accept-Encoding`, `User-Agent`, `Mcp-Session-Id`, `MCP-Protocol-Version` and
+  `Last-Event-ID` are refused, not merely outranked: the session ones are sent
+  only when the transport HAS them, so on the handshake — the request that
+  decides the dialect — a static value would go out unopposed. `Host`,
+  `Content-Length`, `Transfer-Encoding`, `Trailer` and the hop-by-hop controls
+  are refused too, because `net/http` derives or owns them and setting one is a
+  silent no-op.
 - **One credential, one entry.** `verify`, `diff` and `pin` select *every* entry
   when `--name` is absent, so a header there would be sent to every HTTP
-  upstream the lockfile names. Naming a header with more than one entry
-  selected is refused; pass `--name`.
+  upstream the lockfile names. A header with more than one entry selected is
+  refused; pass `--name`. (A single-entry lockfile needs no `--name`.)
 - **A blank or unset value is a usage error**, not an absent header. An absent
   credential is a 401, which is reported as a transport failure — a true
   sentence about the wrong cause.
@@ -101,7 +103,7 @@ They apply to the http transport; a stdio server takes its credentials through
 **From source** (Go 1.26+), which is also how CI pins an exact revision:
 
 ```sh
-go install github.com/JsizzleR/surfacelock/cmd/surfacelock@v0.2.2
+go install github.com/JsizzleR/surfacelock/cmd/surfacelock@v0.2.3
 ```
 
 **Prebuilt binaries** are attached to each GitHub release for darwin/arm64,
@@ -114,7 +116,7 @@ darwin/amd64, linux/amd64 and linux/arm64 — one static binary each, built with
 platform from the release assets —
 
 ```sh
-uv pip install ./surfacelock-0.2.2-py3-none-macosx_12_0_arm64.whl
+uv pip install ./surfacelock-0.2.3-py3-none-macosx_12_0_arm64.whl
 ```
 
 **npm** — a launcher package plus one platform package per binary, resolved by

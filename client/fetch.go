@@ -62,7 +62,9 @@ type Ref struct {
 	// exactly like one that was. stdio carries credentials in Env instead. They exist for a token-gated upstream: an MCP endpoint
 	// behind an edge authenticator answers an unauthenticated fetch with a
 	// transport failure, which is an honest error and never a drift verdict.
-	// NEVER recorded in a lockfile — see surfacelock.Headers.
+	// This package never copies one into a lockfile; a server that ECHOES one
+	// into its own surface is a separate matter the CLI guards and this type
+	// cannot — see surfacelock.Headers, property 1.
 	Headers surfacelock.Headers
 
 	// HTTPClient, when non-nil, carries the http transport's requests ("http"

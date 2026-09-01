@@ -1,6 +1,6 @@
 # tools.lock — format specification, version 0
 
-**Status: shipped in surfacelock v0.2.2, `lockfile_version` 1.** This is a v0 format and
+**Status: shipped in surfacelock v0.2.3, `lockfile_version` 1.** This is a v0 format and
 the project is pre-1.0: the MUSTs below can still change, but no longer silently — a
 change that would make an existing lockfile read differently arrives as a
 `lockfile_version` bump, and the release notes say so.
@@ -140,7 +140,13 @@ keys); they identify the *entry*, never the server — the hashes do that.
 
 - **No timestamps, no tool versions, no provenance.** The same surface MUST produce a
   byte-identical lockfile on every machine, every time. Determinism is the interop claim.
-- **No environment, no credentials, no headers.** Secrets never transit the artifact.
+- **No environment, no credentials, no headers.** An implementation MUST NOT write
+  a request header, an environment variable, or a URL's userinfo into the
+  artifact. This constrains the IMPLEMENTATION, not the server: a server that
+  echoes a credential you sent it into its own `instructions` or a tool
+  description has put those bytes into its surface, and recording the served
+  surface is what this format does. A writer SHOULD refuse to write such a
+  document; surfacelock's CLI does, with stated limits.
 - **No signatures.** A lockfile is reviewed and carried in the consumer's own VCS; its
   integrity story is git's. Signing is a possible future layer, not this one.
 - **Prompts and resources.** MCP servers also serve prompt and resource surfaces; they

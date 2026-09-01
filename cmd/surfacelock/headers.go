@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -115,10 +116,11 @@ func parseHeaders(literal, fromEnv []string) (surfacelock.Headers, []string, err
 func canonicalName(s string) string { return strings.ToUpper(s) }
 
 // reflectionMinLen is the shortest header value this guard will look for. It is
-// a THRESHOLD, not a proof: below it, false positives dominate — `X-Env: prod`
-// would refuse any surface whose description happens to contain "prod" — and a
-// value that short is not a credential worth this refusal. Stated rather than
-// tuned silently, because it is the guard's stated bound.
+// a POLICY THRESHOLD, not a security property: short credentials exist and this
+// guard consciously does not cover them. Below eight bytes false positives
+// dominate — `X-Env: prod` would refuse any surface whose description happens
+// to contain "prod" — and a refusal that fires constantly is one an operator
+// routes around. Stated rather than tuned silently.
 const reflectionMinLen = 8
 
 // refuseReflectedCredential refuses to WRITE a lockfile whose bytes contain a
@@ -139,6 +141,14 @@ const reflectionMinLen = 8
 // A benign echo is possible and this refuses it too. That is the safe
 // direction: the cost of a false refusal is one message, and the cost of a
 // false pass is a secret in version control forever.
+//
+// WHAT IT DOES NOT CATCH, stated because a guard whose bounds are unstated gets
+// read as complete. It matches the value WHOLE, so a server that reflects a
+// prefix, a suffix, a piece, or a transformed form (case-folded, re-encoded,
+// masked) passes. It skips values under reflectionMinLen. It is a CLI guard on
+// the WRITE path, so `verify` and `diff` — which do not write — are not covered
+// for their own reports, and a Go caller rendering its own lockfile is not
+// covered at all. The residue is R-987's neighbourhood in Bastle's ledger.
 func (c *cli) refuseReflectedCredential(rendered []byte) error {
 	doc := string(rendered)
 	for _, name := range sortedKeys(c.headers) {
@@ -146,7 +156,19 @@ func (c *cli) refuseReflectedCredential(rendered []byte) error {
 		if len(v) < reflectionMinLen {
 			continue
 		}
-		if strings.Contains(doc, v) {
+		// BOTH FORMS. The lockfile is RFC 8785 JCS-canonicalized JSON, so a
+		// value containing a quote or a backslash appears ESCAPED in the
+		// rendered bytes and a raw-substring scan would miss it while the
+		// decoded string carries the credential exactly. Marshalling the value
+		// gives the escaped spelling for free; the quotes are trimmed so the
+		// needle is the content and not a whole JSON string.
+		needles := []string{v}
+		if enc, err := json.Marshal(v); err == nil && len(enc) >= 2 {
+			if esc := string(enc[1 : len(enc)-1]); esc != v {
+				needles = append(needles, esc)
+			}
+		}
+		if containsAny(doc, needles) {
 			// The value is NOT echoed — naming the header is enough to act on,
 			// and this message goes to the same stderr and CI logs everything
 			// else in this file refuses to leak into.
@@ -155,6 +177,15 @@ func (c *cli) refuseReflectedCredential(rendered []byte) error {
 		}
 	}
 	return nil
+}
+
+func containsAny(doc string, needles []string) bool {
+	for _, n := range needles {
+		if strings.Contains(doc, n) {
+			return true
+		}
+	}
+	return false
 }
 
 func sortedKeys(h surfacelock.Headers) []string {

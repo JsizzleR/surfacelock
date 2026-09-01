@@ -59,8 +59,9 @@ flags:
   --header N:V   extra HTTP header for http servers (repeatable; never recorded).
                  The value is in this process's argv, where any local process
                  can read it — for a credential prefer --header-env.
-                 Protocol-owned names are refused; with verify/diff/pin, --name
-                 is required so one credential cannot reach every entry
+                 Names the transport owns are refused; and where more than one
+                 entry would be selected, --name is required, so one credential
+                 cannot be sent to every entry in the lockfile
   --header-env N:VAR  the same, with the value read from environment VAR at
                  startup, so it never appears in argv (repeatable)
   --json         lock/verify/diff: machine-readable report on stdout (CLI-JSON.md;
@@ -209,7 +210,7 @@ func (c *cli) targetRef() (client.Ref, string, error) {
 		// recorded, the recorded one is refused. The message never echoes the
 		// URL.
 		if u.User != nil {
-			return client.Ref{}, "", errors.New("--url carries userinfo (user:password@), which net/http sends as HTTP Basic and which would be written into the lockfile's target; pass the credential with --header-env instead")
+			return client.Ref{}, "", errors.New("--url carries userinfo (the user[:password]@ before the host), which net/http sends as HTTP Basic and which would be written into the lockfile's target; pass the credential with --header-env instead")
 		}
 		return client.Ref{Transport: "http", Target: c.url, Offered: c.offer, Headers: c.headers}, u.Host, nil
 	case len(c.argv) > 0:

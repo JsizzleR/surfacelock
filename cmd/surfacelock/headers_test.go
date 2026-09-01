@@ -552,3 +552,29 @@ func TestParseHeadersRefusesReservedNames(t *testing.T) {
 		}
 	}
 }
+
+// TestReflectionScanSeesTheJCSESCAPEDSpelling: the lockfile is canonicalized
+// JSON, so a credential containing a quote or a backslash appears ESCAPED in
+// the rendered bytes. A raw-substring scan alone misses it while the decoded
+// string carries the credential exactly. Named by the re-verify layer.
+func TestReflectionScanSeesTheJCSEscapedSpelling(t *testing.T) {
+	const secret = `tok"with\quotes-12345`
+	c := &cli{file: "tools.lock", headers: surfacelock.Headers{"Authorization": secret}}
+
+	// The RAW value does not appear in canonical JSON; the escaped one does.
+	enc, err := json.Marshal(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered := `{"servers":{"s":{"instructions":` + string(enc) + `}}}`
+	if strings.Contains(rendered, secret) {
+		t.Fatal("precondition: this value needs no escaping, so the leg proves nothing")
+	}
+	if err := c.refuseReflectedCredential([]byte(rendered)); err == nil {
+		t.Fatal("the escaped spelling of the credential was not seen")
+	}
+	// And the control: an unrelated document is not refused.
+	if err := c.refuseReflectedCredential([]byte(`{"servers":{"s":{"instructions":"be helpful"}}}`)); err != nil {
+		t.Fatalf("a clean document was refused: %v", err)
+	}
+}

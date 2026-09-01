@@ -91,10 +91,17 @@ func TestHTTPBackendSendsStaticHeadersOnEVERYRequest(t *testing.T) {
 	}
 }
 
-// TestHTTPBackendProtocolHeadersOverrideStatic proves the ordering at the wire
-// rather than on a bare *http.Request: an operator must not be able to pin a
-// session id or break framing through the credential channel.
-func TestHTTPBackendProtocolHeadersOverrideStatic(t *testing.T) {
+// TestHTTPBackendCannotSetATransportOwnedHeader replaces an earlier leg that
+// proved the apply-then-overwrite ORDERING at the wire. That leg is gone
+// because the property it tested is gone: every header the transport sets is
+// now reserved, so there is no name left for a caller to lose the race on. The
+// re-verify layer is why — accepted-then-ignored is the same silent drop this
+// change refuses everywhere else, and it also made the reflection scan look for
+// a value that was never transmitted.
+//
+// What survives is the stronger statement: the caller cannot set one at all,
+// and a name the transport does NOT touch is delivered untouched.
+func TestHTTPBackendCannotSetATransportOwnedHeader(t *testing.T) {
 	got := make(chan http.Header, 1)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
@@ -106,15 +113,15 @@ func TestHTTPBackendProtocolHeadersOverrideStatic(t *testing.T) {
 	}))
 	t.Cleanup(ts.Close)
 
-	// User-Agent, not Content-Type: the four protocol names are now REFUSED
-	// outright by Validate (see reservedNames), so the ordering rule can only
-	// be exercised on a name the transport Sets and does NOT reserve. That is
-	// the honest test of the second line of defence — with the reserved names
-	// gone from this leg, a mutant that inverts the order still dies here.
-	b, err := newHTTPBackend(ts.URL, surfacelock.Headers{
-		"User-Agent":    "operator-chosen/9",
-		"Authorization": "Bearer tok",
-	}, func(string, ...any) {}, func() {})
+	if _, err := newHTTPBackend(ts.URL, surfacelock.Headers{"User-Agent": "operator-chosen/9"},
+		func(string, ...any) {}, func() {}); err == nil {
+		t.Fatal("a transport-owned header was admitted")
+	}
+
+	// The control: a name the transport never sets arrives exactly as given, so
+	// the refusal above is about ownership and not about headers being dropped.
+	b, err := newHTTPBackend(ts.URL, surfacelock.Headers{"Authorization": "Bearer tok"},
+		func(string, ...any) {}, func() {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,11 +130,11 @@ func TestHTTPBackendProtocolHeadersOverrideStatic(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := <-got
-	if ua := h.Get("User-Agent"); ua != "surfacelock-proxy/0.1" {
-		t.Errorf("User-Agent = %q, want the transport's own value to win", ua)
-	}
 	if a := h.Get("Authorization"); a != "Bearer tok" {
-		t.Errorf("Authorization = %q, want it preserved", a)
+		t.Errorf("Authorization = %q, want it delivered untouched", a)
+	}
+	if ua := h.Get("User-Agent"); ua != "surfacelock-proxy/0.1" {
+		t.Errorf("User-Agent = %q, want the transport's own", ua)
 	}
 }
 
@@ -285,10 +292,22 @@ func TestProxyRefusesHeadersOnAStdioEntry(t *testing.T) {
 	if !strings.Contains(err.Error(), "stdio") {
 		t.Fatalf("error = %v, want one naming the transport", err)
 	}
+	// AND IT NAMES THE ENTRY, not the transport twice. The first draft printed
+	// cfg.Entry.Transport in the %q slot, so the message read `entry "stdio" is
+	// stdio` — which tells an operator with a many-entry lockfile nothing about
+	// WHICH entry to fix.
+	if !strings.Contains(err.Error(), `"e"`) {
+		t.Fatalf("error = %v, want one naming the entry", err)
+	}
 }
 
-// TestProxyValidatesHeadersBeforeStartingAnything: the refusal is hoisted above
-// the findings goroutine too, so a refused Run leaks nothing.
+// TestProxyRefusesAnInvalidHeaderSet asserts exactly what its body checks: an
+// invalid set is refused by Run. It does NOT speak to WHERE the check sits — an
+// earlier comment here claimed the refusal was hoisted above the findings
+// goroutine "so a refused Run leaks nothing", which this body cannot see and a
+// mutant moving Validate below `go c.drainFindings()` would survive. Naming a
+// property no leg checks is how a suite comes to be believed for things it
+// never tested.
 func TestProxyRefusesAnInvalidHeaderSet(t *testing.T) {
 	_, err := Run(context.Background(), Config{
 		Name:    "e",
@@ -297,5 +316,8 @@ func TestProxyRefusesAnInvalidHeaderSet(t *testing.T) {
 	}, strings.NewReader(""), io.Discard)
 	if err == nil {
 		t.Fatal("Run admitted a reserved header name")
+	}
+	if !strings.Contains(err.Error(), "Config.Headers") {
+		t.Fatalf("error = %v, want one naming the field at fault", err)
 	}
 }
