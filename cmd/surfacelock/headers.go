@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/JsizzleR/surfacelock"
@@ -59,7 +60,12 @@ func parseHeaders(literal, fromEnv []string) (surfacelock.Headers, []string, err
 	for _, s := range literal {
 		name, value, ok := strings.Cut(s, ":")
 		if !ok {
-			return nil, nil, fmt.Errorf("--header %q: want NAME:VALUE", s)
+			// THE OPERAND IS NOT ECHOED. The commonest way to get here is
+			// `--header 'Authorization Bearer sk-live-…'` — the colon left out
+			// — so the malformed argument IS the credential, and stderr is a
+			// different audience from argv: CI logs are archived and shared.
+			// Print the SHAPE.
+			return nil, nil, fmt.Errorf("--header: want NAME:VALUE (one colon; the value may contain colons)")
 		}
 		value = strings.TrimSpace(value)
 		if err := add("--header", name, value); err != nil {
@@ -75,11 +81,11 @@ func parseHeaders(literal, fromEnv []string) (surfacelock.Headers, []string, err
 	for _, s := range fromEnv {
 		name, varName, ok := strings.Cut(s, ":")
 		if !ok {
-			return nil, nil, fmt.Errorf("--header-env %q: want NAME:ENVVAR", s)
+			return nil, nil, fmt.Errorf("--header-env: want NAME:ENVVAR (one colon)")
 		}
 		varName = strings.TrimSpace(varName)
 		if varName == "" {
-			return nil, nil, fmt.Errorf("--header-env %q: no environment variable named", s)
+			return nil, nil, fmt.Errorf("--header-env %s: no environment variable named", strings.TrimSpace(name))
 		}
 		// Refuse an unset or empty variable rather than sending an empty header.
 		// An empty credential is refused upstream as a 401, which is reported as
@@ -107,3 +113,55 @@ func parseHeaders(literal, fromEnv []string) (surfacelock.Headers, []string, err
 // field names are case-insensitive, so "authorization" and "Authorization" are
 // one header and setting both is the duplicate this refuses.
 func canonicalName(s string) string { return strings.ToUpper(s) }
+
+// reflectionMinLen is the shortest header value this guard will look for. It is
+// a THRESHOLD, not a proof: below it, false positives dominate — `X-Env: prod`
+// would refuse any surface whose description happens to contain "prod" — and a
+// value that short is not a credential worth this refusal. Stated rather than
+// tuned silently, because it is the guard's stated bound.
+const reflectionMinLen = 8
+
+// refuseReflectedCredential refuses to WRITE a lockfile whose bytes contain a
+// value this process was given as a request header.
+//
+// MEASURED, not predicted: a server that echoes what it was sent — into
+// `instructions`, or into a tool's description — gets those bytes recorded
+// verbatim, because a lockfile's whole job is to record the surface it was
+// served. With `Authorization: Bearer SECRET-abc`, `instructions` came back
+// "you are authenticated as Bearer SECRET-abc" and the rendered artifact
+// carried it. That is a credential in a file people commit.
+//
+// It is a REFUSAL rather than a redaction: redacting would write an artifact
+// whose surface_hash no longer describes what the server served, which is the
+// one thing the format may never do. The remedy an operator needs is to stop
+// trusting that server, and this says so.
+//
+// A benign echo is possible and this refuses it too. That is the safe
+// direction: the cost of a false refusal is one message, and the cost of a
+// false pass is a secret in version control forever.
+func (c *cli) refuseReflectedCredential(rendered []byte) error {
+	doc := string(rendered)
+	for _, name := range sortedKeys(c.headers) {
+		v := c.headers[name]
+		if len(v) < reflectionMinLen {
+			continue
+		}
+		if strings.Contains(doc, v) {
+			// The value is NOT echoed — naming the header is enough to act on,
+			// and this message goes to the same stderr and CI logs everything
+			// else in this file refuses to leak into.
+			return fmt.Errorf("refusing to write %s: the server's own surface contains the value of the %s header this run sent it — "+
+				"a server that reflects your credential into its tool surface would put it in a file you commit", c.file, name)
+		}
+	}
+	return nil
+}
+
+func sortedKeys(h surfacelock.Headers) []string {
+	out := make([]string, 0, len(h))
+	for k := range h {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}

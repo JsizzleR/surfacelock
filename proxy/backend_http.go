@@ -43,6 +43,11 @@ type httpBackend struct {
 
 const httpCloseTimeout = 5 * time.Second
 
+// refuseRedirect stops net/http from following a 3xx; see the note at the
+// client of the same name. The proxy's client is not caller-injectable, so this
+// is the only place the posture can be set for it.
+func refuseRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
 func newHTTPBackend(target string, headers surfacelock.Headers, finding func(string, ...any), onTransport func()) (*httpBackend, error) {
 	u, err := url.Parse(target)
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
@@ -53,7 +58,12 @@ func newHTTPBackend(target string, headers surfacelock.Headers, finding func(str
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &httpBackend{
-		url: target, client: &http.Client{}, headers: headers, frames: make(chan []byte, 64),
+		// A redirect is a request this package did not build, to a host the
+		// UPSTREAM chose; net/http strips only six credential names and only
+		// across hostnames, so following one hands a static header to whoever
+		// the untrusted server names. See client.refuseRedirect.
+		url: target, client: &http.Client{CheckRedirect: refuseRedirect},
+		headers: headers.Clone(), frames: make(chan []byte, 64),
 		ctx: ctx, cancel: cancel, finding: finding, onTransport: onTransport,
 	}, nil
 }

@@ -1,13 +1,16 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -103,8 +106,13 @@ func TestHTTPBackendProtocolHeadersOverrideStatic(t *testing.T) {
 	}))
 	t.Cleanup(ts.Close)
 
+	// User-Agent, not Content-Type: the four protocol names are now REFUSED
+	// outright by Validate (see reservedNames), so the ordering rule can only
+	// be exercised on a name the transport Sets and does NOT reserve. That is
+	// the honest test of the second line of defence — with the reserved names
+	// gone from this leg, a mutant that inverts the order still dies here.
 	b, err := newHTTPBackend(ts.URL, surfacelock.Headers{
-		"Content-Type":  "text/plain",
+		"User-Agent":    "operator-chosen/9",
 		"Authorization": "Bearer tok",
 	}, func(string, ...any) {}, func() {})
 	if err != nil {
@@ -115,11 +123,25 @@ func TestHTTPBackendProtocolHeadersOverrideStatic(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := <-got
-	if ct := h.Get("Content-Type"); ct != "application/json" {
-		t.Errorf("Content-Type = %q, want the transport's own value to win", ct)
+	if ua := h.Get("User-Agent"); ua != "surfacelock-proxy/0.1" {
+		t.Errorf("User-Agent = %q, want the transport's own value to win", ua)
 	}
 	if a := h.Get("Authorization"); a != "Bearer tok" {
 		t.Errorf("Authorization = %q, want it preserved", a)
+	}
+}
+
+// TestNewHTTPBackendRefusesReservedNames: ordering cannot make an INTENTIONAL
+// ABSENCE win — the transport Sets Mcp-Session-Id and MCP-Protocol-Version only
+// when it HAS them, so on the initialize request both are empty and a static
+// value would go out unopposed, choosing a dialect the lockfile then records
+// without recording why. These are refused, not merely outranked.
+func TestNewHTTPBackendRefusesReservedNames(t *testing.T) {
+	for _, name := range []string{"Content-Type", "Accept", "Mcp-Session-Id", "MCP-Protocol-Version", "mcp-protocol-version", "Host", "Content-Length"} {
+		if _, err := newHTTPBackend("http://example/mcp", surfacelock.Headers{name: "v"},
+			func(string, ...any) {}, func() {}); err == nil {
+			t.Errorf("newHTTPBackend admitted the reserved header %q", name)
+		}
 	}
 }
 
@@ -175,4 +197,105 @@ func waitFor(t *testing.T, cond func() bool, msg string) {
 		time.Sleep(2 * time.Millisecond)
 	}
 	t.Fatal(msg)
+}
+
+// TestHTTPBackendDoesNotFollowARedirect is the exfiltration leg. net/http's
+// default client follows up to 10 redirects and strips only six credential
+// header names, comparing HOSTNAMES — so `Authorization` survives to a
+// subdomain, to another port and from https to http, and a vendor name like
+// `X-Api-Key` survives to an unrelated host entirely. The upstream chooses the
+// Location, and the upstream is the thing this proxy exists to distrust.
+//
+// The leg asserts the CREDENTIAL NEVER ARRIVES at the second server, not merely
+// that the request failed: a proxy that failed for some other reason would
+// satisfy a status-only assertion while still having sent the token.
+func TestHTTPBackendDoesNotFollowARedirect(t *testing.T) {
+	var mu sync.Mutex
+	var collectorSaw []string
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		collectorSaw = append(collectorSaw, r.Header.Get("X-Api-Key")+"|"+r.Header.Get("Authorization"))
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(collector.Close)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, collector.URL+"/collect", http.StatusFound)
+	}))
+	t.Cleanup(upstream.Close)
+
+	var findings []string
+	b, err := newHTTPBackend(upstream.URL, surfacelock.Headers{
+		"Authorization": "Bearer tok",
+		"X-Api-Key":     "vendor-key",
+	}, func(f string, a ...any) { mu.Lock(); findings = append(findings, fmt.Sprintf(f, a...)); mu.Unlock() },
+		func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(b.Close)
+	if err := b.Send(context.Background(), []byte(`{"jsonrpc":"2.0","id":1,"method":"initialize"}`)); err != nil {
+		t.Fatal(err)
+	}
+	frame := collectFrame(t, b.Frames())
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(collectorSaw) != 0 {
+		t.Fatalf("the redirect target received %d request(s) carrying %v", len(collectorSaw), collectorSaw)
+	}
+	// And the 3xx is reported honestly, as a transport failure naming the status
+	// — never as drift, and never as a silent retarget.
+	if !bytes.Contains(frame, []byte("302")) {
+		t.Fatalf("the redirect was not reported to the client as a transport failure: %s", frame)
+	}
+}
+
+// TestProxyRefusesHeadersWithABackendOverride: newHTTPBackend is the only
+// constructor that validates, and a Config carrying a Backend override never
+// reaches it — so without the hoisted check a caller's credential is dropped,
+// unvalidated, in silence. That is the one posture every other arm of this
+// change refuses.
+func TestProxyRefusesHeadersWithABackendOverride(t *testing.T) {
+	_, err := Run(context.Background(), Config{
+		Name:    "e",
+		Entry:   &surfacelock.ServerLock{Transport: "http", Target: "http://example/mcp"},
+		Headers: surfacelock.Headers{"Authorization": "Bearer tok"},
+		Backend: newFakeBackend(),
+	}, strings.NewReader(""), io.Discard)
+	if err == nil {
+		t.Fatal("Run honoured neither the headers nor a refusal")
+	}
+	if strings.Contains(err.Error(), "Bearer tok") {
+		t.Fatalf("the refusal echoed the credential: %v", err)
+	}
+}
+
+// TestProxyRefusesHeadersOnAStdioEntry: the library half of the CLI refusal.
+func TestProxyRefusesHeadersOnAStdioEntry(t *testing.T) {
+	_, err := Run(context.Background(), Config{
+		Name:    "e",
+		Entry:   &surfacelock.ServerLock{Transport: "stdio", Target: "/bin/echo"},
+		Headers: surfacelock.Headers{"Authorization": "Bearer tok"},
+	}, strings.NewReader(""), io.Discard)
+	if err == nil {
+		t.Fatal("Run dropped headers on a stdio entry instead of refusing")
+	}
+	if !strings.Contains(err.Error(), "stdio") {
+		t.Fatalf("error = %v, want one naming the transport", err)
+	}
+}
+
+// TestProxyValidatesHeadersBeforeStartingAnything: the refusal is hoisted above
+// the findings goroutine too, so a refused Run leaks nothing.
+func TestProxyRefusesAnInvalidHeaderSet(t *testing.T) {
+	_, err := Run(context.Background(), Config{
+		Name:    "e",
+		Entry:   &surfacelock.ServerLock{Transport: "http", Target: "http://example/mcp"},
+		Headers: surfacelock.Headers{"Mcp-Session-Id": "pinned"},
+	}, strings.NewReader(""), io.Discard)
+	if err == nil {
+		t.Fatal("Run admitted a reserved header name")
+	}
 }

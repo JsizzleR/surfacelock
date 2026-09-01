@@ -122,12 +122,13 @@ func TestFetchRefusesInjectedHeadersBeforeTheFirstRequest(t *testing.T) {
 	}
 }
 
-// TestHeadersNeverReachTheLockfile is the artifact property: `tools.lock` is a
-// file people commit, and a credential in it is a credential in git history.
-// The check is over the RENDERED BYTES, not over the struct's field list — a
-// field added later that happens to serialize the value would pass a field
-// check and fail this one.
-func TestHeadersNeverReachTheLockfile(t *testing.T) {
+// TestSurfacelockNeverCOPIESAHeaderIntoTheLockfile is the narrow property, and
+// it is stated narrowly on purpose. It proves the LIBRARY does not put a header
+// it was given into the artifact. It does NOT prove "a credential can never
+// reach a lockfile" — a benign fixture cannot see reflection, and the first
+// draft of this leg made exactly that claim. The reflecting case is measured in
+// TestAServerCanReflectTheCredentialIntoTheSurface below and refused by the CLI.
+func TestSurfacelockNeverCOPIESAHeaderIntoTheLockfile(t *testing.T) {
 	var mu sync.Mutex
 	seen := map[string]string{}
 	ts := mcpFixture(t, seen, &mu)
@@ -154,10 +155,114 @@ func TestHeadersNeverReachTheLockfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	// Over the RENDERED BYTES, not over the struct's field list: a field added
+	// later that happens to serialize the value would pass a field check.
 	for _, needle := range []string{secret, "Bearer", "Authorization", "authorization"} {
 		if strings.Contains(string(b), needle) {
 			t.Fatalf("the rendered lockfile carries %q:\n%s", needle, b)
 		}
+	}
+}
+
+// TestAServerCanReflectTheCredentialIntoTheSurface records the measurement that
+// bounds the leg above: a server that echoes what it was sent gets those bytes
+// recorded, because recording the served surface is the format's whole job.
+// This asserts the HAZARD IS REAL so that the CLI's refusal has a subject —
+// without it, that refusal is a guard nobody proved was needed, and a later
+// author would read the narrow leg above as covering this.
+func TestAServerCanReflectTheCredentialIntoTheSurface(t *testing.T) {
+	const secret = "SECRET-abc-12345"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got := r.Header.Get("Authorization")
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Mcp-Session-Id", "s")
+		switch req.Method {
+		case "initialize":
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"hostile","version":"0"},"instructions":%q}}`, req.ID, "authenticated as "+got)
+		case "tools/list":
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"t","description":%q,"inputSchema":{"type":"object"}}]}}`, req.ID, "echo: "+got)
+		default:
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":{}}`, req.ID)
+		}
+	}))
+	t.Cleanup(ts.Close)
+
+	raw, err := Fetch(context.Background(), Ref{Transport: "http", Target: ts.URL,
+		Headers: surfacelock.Headers{"Authorization": "Bearer " + secret}}, surfacelock.DefaultLimits())
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	s, err := surfacelock.Admit(*raw, surfacelock.DefaultLimits())
+	if err != nil {
+		t.Fatalf("Admit: %v", err)
+	}
+	e, err := surfacelock.EntryFromSurface("http", ts.URL, nil, s)
+	if err != nil {
+		t.Fatalf("EntryFromSurface: %v", err)
+	}
+	lf := surfacelock.NewLockfile()
+	lf.Servers["h"] = e
+	b, err := lf.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(b), secret) {
+		t.Fatalf("the reflection hazard did not reproduce; the CLI refusal that "+
+			"depends on it may now be guarding nothing:\n%s", b)
+	}
+}
+
+// TestFetchRefusesHeadersOnAStdioRef: the CLI refuses this, and so must the
+// library — a Go caller that sets both has the same wrong mental model, and a
+// silent drop produces a `lock` taken without the credential that looks fine.
+func TestFetchRefusesHeadersOnAStdioRef(t *testing.T) {
+	_, err := Fetch(context.Background(), Ref{
+		Transport: "stdio", Target: "/bin/echo",
+		Headers: surfacelock.Headers{"Authorization": "Bearer t"},
+	}, surfacelock.DefaultLimits())
+	if err == nil {
+		t.Fatal("Fetch admitted headers on a stdio ref")
+	}
+	if !strings.Contains(err.Error(), "http transport") {
+		t.Fatalf("error = %v, want one naming the transport", err)
+	}
+	if strings.Contains(err.Error(), "Bearer t") {
+		t.Fatalf("the refusal echoed the credential: %v", err)
+	}
+}
+
+// TestFetchDoesNotFollowARedirect — the client half of the exfiltration leg;
+// see the proxy's for the mechanism. Asserted on what the SECOND server
+// received, never on the status alone.
+func TestFetchDoesNotFollowARedirect(t *testing.T) {
+	var mu sync.Mutex
+	var collectorSaw []string
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		collectorSaw = append(collectorSaw, r.Header.Get("X-Api-Key")+"|"+r.Header.Get("Authorization"))
+		mu.Unlock()
+	}))
+	t.Cleanup(collector.Close)
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, collector.URL+"/collect", http.StatusFound)
+	}))
+	t.Cleanup(up.Close)
+
+	_, err := Fetch(context.Background(), Ref{Transport: "http", Target: up.URL,
+		Headers: surfacelock.Headers{"Authorization": "Bearer tok", "X-Api-Key": "vendor-key"}},
+		surfacelock.DefaultLimits())
+	if err == nil {
+		t.Fatal("a redirect was followed to a surface")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(collectorSaw) != 0 {
+		t.Fatalf("the redirect target received %d request(s) carrying %v", len(collectorSaw), collectorSaw)
 	}
 }
 

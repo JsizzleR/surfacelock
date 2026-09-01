@@ -57,8 +57,9 @@ type Ref struct {
 	Flow string
 
 	// Headers are static HTTP request headers attached to every request this
-	// fetch makes ("http" only; ignored for stdio, which carries credentials in
-	// Env instead). They exist for a token-gated upstream: an MCP endpoint
+	// fetch makes. HTTP ONLY — setting them with any other transport is an
+	// ERROR, never a silent drop, because a credential quietly not sent looks
+	// exactly like one that was. stdio carries credentials in Env instead. They exist for a token-gated upstream: an MCP endpoint
 	// behind an edge authenticator answers an unauthenticated fetch with a
 	// transport failure, which is an honest error and never a drift verdict.
 	// NEVER recorded in a lockfile — see surfacelock.Headers.
@@ -120,6 +121,13 @@ func Fetch(ctx context.Context, ref Ref, lim surfacelock.Limits) (*surfacelock.R
 	// error names a write and not the caller's input.
 	if err := ref.Headers.Validate(); err != nil {
 		return nil, err
+	}
+	// REFUSED, not ignored, and here rather than only in the CLI: a Go caller
+	// that sets both has the same wrong mental model a CLI caller does, and the
+	// consequence is worse — a `lock` taken with a credential the transport
+	// never sent produces an artifact that looks fine.
+	if len(ref.Headers) > 0 && ref.Transport != "http" {
+		return nil, fmt.Errorf("Headers apply to the http transport; transport %q carries credentials in Env", ref.Transport)
 	}
 
 	switch ref.Flow {

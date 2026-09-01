@@ -58,7 +58,9 @@ flags:
   --env K=V      extra environment for stdio servers (repeatable; never recorded)
   --header N:V   extra HTTP header for http servers (repeatable; never recorded).
                  The value is in this process's argv, where any local process
-                 can read it — for a credential prefer --header-env
+                 can read it — for a credential prefer --header-env.
+                 Protocol-owned names are refused; with verify/diff/pin, --name
+                 is required so one credential cannot reach every entry
   --header-env N:VAR  the same, with the value read from environment VAR at
                  startup, so it never appears in argv (repeatable)
   --json         lock/verify/diff: machine-readable report on stdout (CLI-JSON.md;
@@ -199,6 +201,16 @@ func (c *cli) targetRef() (client.Ref, string, error) {
 		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 			return client.Ref{}, "", fmt.Errorf("--url %q is not an http(s) URL", c.url)
 		}
+		// USERINFO IS A CREDENTIAL AND THE TARGET IS RECORDED. net/http turns
+		// `https://user:secret@host/` into an HTTP Basic header on its own, and
+		// this URL is written verbatim into the lockfile's `target` — a file
+		// people commit. It was the only credential shape this tool could carry
+		// before --header existed; now that a channel exists that is NOT
+		// recorded, the recorded one is refused. The message never echoes the
+		// URL.
+		if u.User != nil {
+			return client.Ref{}, "", errors.New("--url carries userinfo (user:password@), which net/http sends as HTTP Basic and which would be written into the lockfile's target; pass the credential with --header-env instead")
+		}
 		return client.Ref{Transport: "http", Target: c.url, Offered: c.offer, Headers: c.headers}, u.Host, nil
 	case len(c.argv) > 0:
 		// REFUSE rather than ignore. A caller who spelled a credential for a
@@ -229,6 +241,15 @@ func refFromEntry(e *surfacelock.ServerLock, env []string, headers surfacelock.H
 func (c *cli) checkHeaderTransports(lf *surfacelock.Lockfile, names []string) error {
 	if len(c.headers) == 0 {
 		return nil
+	}
+	// ONE CREDENTIAL, ONE ENTRY. `verify`, `diff` and `pin` with no --name
+	// select EVERY entry, so without this a corporate bearer meant for an
+	// internal server is POSTed to every third-party HTTP upstream the lockfile
+	// happens to name — and `pin` then rewrites the file as if that were a
+	// normal run. There is no per-entry header syntax, so the safe binding is
+	// to require the operator to name the entry the credential belongs to.
+	if len(names) > 1 {
+		return fmt.Errorf("--header/--header-env with %d entries selected would send one credential to every one of them; name the entry it belongs to with --name", len(names))
 	}
 	for _, name := range names {
 		if e := lf.Servers[name]; e != nil && e.Transport != "http" {
@@ -269,6 +290,9 @@ func (c *cli) readLockfile() (*surfacelock.Lockfile, error) {
 
 func (c *cli) writeLockfile(lf *surfacelock.Lockfile) error {
 	b, err := lf.Render()
+	if err == nil {
+		err = c.refuseReflectedCredential(b)
+	}
 	if err != nil {
 		return err
 	}

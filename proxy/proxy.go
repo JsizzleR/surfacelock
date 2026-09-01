@@ -62,8 +62,9 @@ type Config struct {
 	// Headers are static HTTP request headers attached to every request an
 	// http upstream is sent — the credential channel a token-gated endpoint
 	// needs. Env's counterpart for the other transport, with the same posture:
-	// never recorded in a lockfile. Ignored for a stdio upstream; the CLI
-	// refuses the combination rather than ignoring it silently.
+	// never recorded in a lockfile. Setting them for a stdio upstream, or
+	// alongside a Backend override, is an ERROR rather than a silent drop — a
+	// credential quietly not sent is indistinguishable from one that was.
 	Headers surfacelock.Headers
 	// Warn forwards non-prompt-text drift (schema, metadata, era, flow,
 	// removed) with a warning instead of refusing. Drift that introduces
@@ -164,6 +165,18 @@ func Run(ctx context.Context, cfg Config, clientIn io.Reader, clientOut io.Write
 	if cfg.Limits == (surfacelock.Limits{}) {
 		cfg.Limits = surfacelock.DefaultLimits()
 	}
+	// HOISTED ABOVE THE BACKEND BRANCH, and above the findings goroutine, so a
+	// refusal starts nothing. newHTTPBackend validates too, but it is the ONLY
+	// branch that does: a Config carrying both Headers and a Backend override
+	// would otherwise take the seam, never reach that constructor, and drop an
+	// unvalidated credential in silence — the exact posture every other arm of
+	// this change refuses.
+	if err := cfg.Headers.Validate(); err != nil {
+		return Outcome{}, fmt.Errorf("proxy: Config.Headers: %w", err)
+	}
+	if len(cfg.Headers) > 0 && cfg.Backend != nil {
+		return Outcome{}, errors.New("proxy: Config.Headers cannot be honoured with a Config.Backend override; the override owns the transport")
+	}
 
 	c := &core{
 		cfg:      cfg,
@@ -182,6 +195,11 @@ func Run(ctx context.Context, cfg Config, clientIn io.Reader, clientOut io.Write
 		var err error
 		switch cfg.Entry.Transport {
 		case "stdio":
+			// See the Headers field: refused rather than dropped.
+			if len(cfg.Headers) > 0 {
+				err = fmt.Errorf("Headers apply to an http upstream; entry %q is stdio (a stdio upstream carries credentials in Env)", cfg.Entry.Transport)
+				break
+			}
 			backend, err = newStdioBackend(cfg.Entry.Target, cfg.Entry.Args, cfg.Env, cfg.ChildStderr)
 		case "http":
 			backend, err = newHTTPBackend(cfg.Entry.Target, cfg.Headers, c.finding, c.setTransport)

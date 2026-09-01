@@ -113,10 +113,26 @@ type httpSession struct {
 func newHTTPSession(url string, pageCap int, injected *http.Client, headers surfacelock.Headers) *httpSession {
 	c := injected
 	if c == nil {
-		c = &http.Client{}
+		c = &http.Client{CheckRedirect: refuseRedirect}
 	}
-	return &httpSession{url: url, client: c, nextID: 1, pageCap: pageCap, headers: headers}
+	// CLONED: the caller keeps its map. Without this a mutation after Validate
+	// both defeats the validation and races the goroutines reading it.
+	return &httpSession{url: url, client: c, nextID: 1, pageCap: pageCap, headers: headers.Clone()}
 }
+
+// refuseRedirect stops net/http from following a 3xx. A redirect is a request
+// this package did not build, to a host the UPSTREAM chose, and net/http strips
+// only six credential header names — by HOSTNAME, so `Authorization` survives a
+// redirect to a subdomain, to another port, and from https to http, while a
+// vendor name like `X-Api-Key` survives to anywhere at all. Every static header
+// is a credential by construction, so following a redirect hands it to whoever
+// the untrusted server names.
+//
+// It is also wrong independent of credentials: a verifier that follows a
+// redirect did not fetch the target it locked. Returning ErrUseLastResponse
+// surfaces the 3xx as the response, so the caller reports an honest
+// "HTTP 302" transport failure rather than a silent retarget.
+func refuseRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
 // newRequest is the ONLY place this session builds an HTTP request. Every
 // request it makes must carry the caller's static headers — a credential absent

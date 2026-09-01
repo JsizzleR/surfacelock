@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -98,8 +99,23 @@ func TestParseHeadersRefusesDuplicatesCaseInsensitively(t *testing.T) {
 		t.Fatal("a case-variant duplicate was admitted")
 	}
 	t.Setenv("T", "x")
-	if _, _, err := parseHeaders([]string{"Authorization: a"}, []string{"authorization: T"}); err == nil {
+	err := func() error {
+		_, _, e := parseHeaders([]string{"Authorization: a"}, []string{"authorization: T"})
+		return e
+	}()
+	if err == nil {
 		t.Fatal("a duplicate across --header and --header-env was admitted")
+	}
+	// AND THE MESSAGE NAMES THE FLAG THAT ALREADY SET IT. Headers.Validate also
+	// refuses case-variant duplicates, so without this assertion the CLI's own
+	// check is redundant and a mutant deleting it survives — measured, it did.
+	// Which of two spellings to remove is the operator's actual question, and
+	// only the CLI knows the answer.
+	if !strings.Contains(err.Error(), "--header-env") && !strings.Contains(err.Error(), "--header") {
+		t.Fatalf("the duplicate error does not name the flag that set it first: %v", err)
+	}
+	if !strings.Contains(err.Error(), "set twice") {
+		t.Fatalf("the CLI's own duplicate message was not what refused: %v", err)
 	}
 }
 
@@ -377,5 +393,162 @@ func TestCLIProxyOverATokenGatedServer(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "drift=false") || !strings.Contains(stderr, "transport=true") {
 		t.Fatalf("the session outcome does not read transport-only:\n%s", stderr)
+	}
+}
+
+// --- the refusals the review layers asked for ---
+
+func TestCLIRefusesURLUserinfo(t *testing.T) {
+	// net/http turns userinfo into HTTP Basic on its own, AND the URL is
+	// written verbatim into the lockfile's target — a file people commit. It
+	// was the only credential shape this tool could carry before --header; now
+	// that a channel exists which is NOT recorded, the recorded one is refused.
+	code, _, stderr := runCLI(t, "lock", "--url", "http://u:sk-live-abc@127.0.0.1:1/mcp",
+		"--name", "s", "--file", t.TempDir()+"/tools.lock")
+	if code != exitUsage {
+		t.Fatalf("exit %d, want %d (usage)", code, exitUsage)
+	}
+	if !strings.Contains(stderr, "--header-env") {
+		t.Fatalf("the refusal does not name the remedy: %s", stderr)
+	}
+	if strings.Contains(stderr, "sk-live-abc") {
+		t.Fatalf("the refusal echoed the credential: %s", stderr)
+	}
+}
+
+func TestCLIRefusesOneCredentialAcrossManyEntries(t *testing.T) {
+	// verify/diff/pin with no --name select EVERY entry, so one corporate
+	// bearer would be POSTed to every third-party upstream the lockfile names.
+	srv := &mutableMCP{}
+	srv.set(toolV1, "be helpful")
+	ts := httptest.NewServer(http.HandlerFunc(srv.handler))
+	t.Cleanup(ts.Close)
+	dir := t.TempDir()
+	lock := dir + "/tools.lock"
+	for _, name := range []string{"internal", "thirdparty"} {
+		if code, _, stderr := runCLI(t, "lock", "--url", ts.URL, "--name", name, "--file", lock); code != exitOK {
+			t.Fatalf("fixture lock %s: exit %d: %s", name, code, stderr)
+		}
+	}
+	for _, verb := range []string{"verify", "diff", "pin"} {
+		code, _, stderr := runCLI(t, verb, "--header", "X-Api-Key: corp-secret-value", "--file", lock)
+		if code != exitUsage {
+			t.Errorf("%s: exit %d, want %d (usage)", verb, code, exitUsage)
+		}
+		if !strings.Contains(stderr, "--name") {
+			t.Errorf("%s: the refusal does not name the remedy: %s", verb, stderr)
+		}
+		if strings.Contains(stderr, "corp-secret-value") {
+			t.Errorf("%s: the refusal echoed the credential: %s", verb, stderr)
+		}
+	}
+	// The control: WITH --name the same command is admitted, so the refusal
+	// above is about the SELECTION and not about headers being present at all.
+	if code, _, stderr := runCLI(t, "verify", "--header", "X-Api-Key: corp-secret-value",
+		"--file", lock, "--name", "internal"); code != exitOK {
+		t.Fatalf("a single named entry was refused too: exit %d: %s", code, stderr)
+	}
+}
+
+// TestCLIRefusesToWriteAReflectedCredential is the artifact half. The library
+// records what it is served — that is the format's job — so the refusal has to
+// sit at the WRITE, where both the credential and the bytes are in hand.
+func TestCLIRefusesToWriteAReflectedCredential(t *testing.T) {
+	const secret = "SECRET-abc-12345"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got := r.Header.Get("Authorization")
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Mcp-Session-Id", "s")
+		switch req.Method {
+		case "initialize":
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"hostile","version":"0"},"instructions":%q}}`, req.ID, "authenticated as "+got)
+		case "tools/list":
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"t","description":"plain","inputSchema":{"type":"object"}}]}}`, req.ID)
+		default:
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":{}}`, req.ID)
+		}
+	}))
+	t.Cleanup(ts.Close)
+	dir := t.TempDir()
+	lock := dir + "/tools.lock"
+
+	t.Setenv("TOK", "Bearer "+secret)
+	code, _, stderr := runCLI(t, "lock", "--header-env", "Authorization: TOK",
+		"--url", ts.URL, "--name", "hostile", "--file", lock)
+	if code == exitOK {
+		t.Fatal("a reflected credential was written to the lockfile")
+	}
+	if !strings.Contains(stderr, "Authorization") {
+		t.Fatalf("the refusal does not name the header: %s", stderr)
+	}
+	if strings.Contains(stderr, secret) {
+		t.Fatalf("the refusal echoed the credential: %s", stderr)
+	}
+	// AND NOTHING WAS WRITTEN. A refusal that still leaves the file on disk has
+	// done nothing — the secret would be in the working tree either way.
+	if _, err := os.Stat(lock); !os.IsNotExist(err) {
+		b, _ := os.ReadFile(lock)
+		t.Fatalf("the lockfile was written anyway:\n%s", b)
+	}
+}
+
+// TestCLIWritesALockfileWhenNothingIsReflected is the control for the leg
+// above: without it, a guard that refused EVERY credentialed lock would pass.
+func TestCLIWritesALockfileWhenNothingIsReflected(t *testing.T) {
+	srv := &mutableMCP{}
+	srv.set(toolV1, "be helpful")
+	ts := httptest.NewServer(http.HandlerFunc(srv.handler))
+	t.Cleanup(ts.Close)
+	lock := t.TempDir() + "/tools.lock"
+	t.Setenv("TOK", "Bearer SECRET-abc-12345")
+	if code, _, stderr := runCLI(t, "lock", "--header-env", "Authorization: TOK",
+		"--url", ts.URL, "--name", "benign", "--file", lock); code != exitOK {
+		t.Fatalf("a non-reflecting server was refused: exit %d: %s", code, stderr)
+	}
+	if _, err := os.Stat(lock); err != nil {
+		t.Fatalf("no lockfile written: %v", err)
+	}
+}
+
+func TestParseHeadersRefusesABlankValue(t *testing.T) {
+	// `--header Authorization:` is an absent credential wearing a present one's
+	// shape: the upstream answers 401 and the operator is told their server is
+	// unreachable — the same wrong cause --header-env's unset refusal prevents.
+	for _, arg := range []string{"Authorization:", "Authorization:   ", "Authorization: "} {
+		if _, _, err := parseHeaders([]string{arg}, nil); err == nil {
+			t.Errorf("%q was admitted", arg)
+		}
+	}
+	t.Setenv("BLANK", "   ")
+	if _, _, err := parseHeaders(nil, []string{"Authorization: BLANK"}); err == nil {
+		t.Error("a whitespace-only environment value was admitted")
+	}
+}
+
+func TestParseHeadersDoesNotEchoAMalformedArgument(t *testing.T) {
+	// The commonest way to reach this error is leaving the colon out, which
+	// makes the malformed argument the credential itself.
+	_, _, err := parseHeaders([]string{"Authorization Bearer sk-live-abc"}, nil)
+	if err == nil {
+		t.Fatal("a colonless --header was admitted")
+	}
+	if strings.Contains(err.Error(), "sk-live-abc") {
+		t.Fatalf("the error echoed the credential: %v", err)
+	}
+	if !strings.Contains(err.Error(), "NAME:VALUE") {
+		t.Fatalf("the error does not state the shape: %v", err)
+	}
+}
+
+func TestParseHeadersRefusesReservedNames(t *testing.T) {
+	for _, name := range []string{"Content-Type", "Mcp-Session-Id", "MCP-Protocol-Version", "Host"} {
+		if _, _, err := parseHeaders([]string{name + ": v"}, nil); err == nil {
+			t.Errorf("the CLI admitted the reserved header %q", name)
+		}
 	}
 }
