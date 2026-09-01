@@ -103,22 +103,39 @@ func readCapped(r io.Reader, limit int) ([]byte, error) {
 type httpSession struct {
 	url       string
 	client    *http.Client
+	headers   surfacelock.Headers // static, applied first so the protocol's own headers win
 	sessionID string
 	proto     string // negotiated; sent as MCP-Protocol-Version after initialize
 	nextID    int64
 	pageCap   int
 }
 
-func newHTTPSession(url string, pageCap int, injected *http.Client) *httpSession {
+func newHTTPSession(url string, pageCap int, injected *http.Client, headers surfacelock.Headers) *httpSession {
 	c := injected
 	if c == nil {
 		c = &http.Client{}
 	}
-	return &httpSession{url: url, client: c, nextID: 1, pageCap: pageCap}
+	return &httpSession{url: url, client: c, nextID: 1, pageCap: pageCap, headers: headers}
+}
+
+// newRequest is the ONLY place this session builds an HTTP request. Every
+// request it makes must carry the caller's static headers — a credential absent
+// from one path is a 401 on that path alone, which reads as a server fault and
+// not as a missing header (the session-teardown DELETE is exactly that path: its
+// failure is silent by design). Keeping construction in one function is what
+// makes "every request" checkable rather than remembered; client_headers_test.go
+// gates that no other request is built here.
+func (h *httpSession) newRequest(ctx context.Context, method string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, h.url, body)
+	if err != nil {
+		return nil, err
+	}
+	h.headers.Apply(req)
+	return req, nil
 }
 
 func (h *httpSession) post(ctx context.Context, body []byte) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.url, bytes.NewReader(body))
+	req, err := h.newRequest(ctx, http.MethodPost, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +266,7 @@ func (h *httpSession) close(parent context.Context) {
 	// ceiling (adversarial-panel finding, phase-2 gate).
 	ctx, cancel := context.WithTimeout(parent, closeTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, h.url, nil)
+	req, err := h.newRequest(ctx, http.MethodDelete, nil)
 	if err != nil {
 		return
 	}

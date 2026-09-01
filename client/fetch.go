@@ -56,6 +56,14 @@ type Ref struct {
 	// taken with, never over whichever one the current server prefers.
 	Flow string
 
+	// Headers are static HTTP request headers attached to every request this
+	// fetch makes ("http" only; ignored for stdio, which carries credentials in
+	// Env instead). They exist for a token-gated upstream: an MCP endpoint
+	// behind an edge authenticator answers an unauthenticated fetch with a
+	// transport failure, which is an honest error and never a drift verdict.
+	// NEVER recorded in a lockfile — see surfacelock.Headers.
+	Headers surfacelock.Headers
+
 	// HTTPClient, when non-nil, carries the http transport's requests ("http"
 	// only; ignored for stdio). It exists for callers whose target is not
 	// directly dialable by a default client — a unix-socket upstream behind a
@@ -106,6 +114,13 @@ func Fetch(ctx context.Context, ref Ref, lim surfacelock.Limits) (*surfacelock.R
 	if err := surfacelock.CheckEra(offered); err != nil {
 		return nil, err
 	}
+	// Static headers are caller input that becomes header bytes on every
+	// request — refuse an invalid name or an injected CR/LF here, before the
+	// first one is written, rather than at net/http's write barrier, whose
+	// error names a write and not the caller's input.
+	if err := ref.Headers.Validate(); err != nil {
+		return nil, err
+	}
 
 	switch ref.Flow {
 	case FlowStateless:
@@ -142,7 +157,7 @@ func fetchOnce(ctx context.Context, ref Ref, lim surfacelock.Limits, offered str
 	var err error
 	switch ref.Transport {
 	case "http":
-		sess = newHTTPSession(ref.Target, lim.MaxPageBytes, ref.HTTPClient)
+		sess = newHTTPSession(ref.Target, lim.MaxPageBytes, ref.HTTPClient, ref.Headers)
 	case "stdio":
 		sess, err = newStdioSession(append([]string{ref.Target}, ref.Args...), ref.Env, lim.MaxPageBytes)
 	default:

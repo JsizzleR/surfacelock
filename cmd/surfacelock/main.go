@@ -56,6 +56,11 @@ flags:
   --timeout D    per-server fetch budget (default 60s; lock/verify/diff/pin)
   --offer V      protocolVersion to offer at initialize (lock only; default ` + client.DefaultOfferedVersion + `)
   --env K=V      extra environment for stdio servers (repeatable; never recorded)
+  --header N:V   extra HTTP header for http servers (repeatable; never recorded).
+                 The value is in this process's argv, where any local process
+                 can read it — for a credential prefer --header-env
+  --header-env N:VAR  the same, with the value read from environment VAR at
+                 startup, so it never appears in argv (repeatable)
   --json         lock/verify/diff: machine-readable report on stdout (CLI-JSON.md;
                  exit codes unchanged)
   --warn         proxy only: forward non-prompt-text drift with a warning;
@@ -99,6 +104,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	jsonOut := fs.Bool("json", false, "machine-readable report on stdout (lock/verify/diff)")
 	var env multiFlag
 	fs.Var(&env, "env", "extra KEY=VAL for stdio servers (repeatable)")
+	var header, headerEnv multiFlag
+	fs.Var(&header, "header", "extra NAME:VALUE HTTP header for http servers (repeatable; the value is visible in argv)")
+	fs.Var(&headerEnv, "header-env", "extra NAME:ENVVAR HTTP header for http servers, value read from the environment (repeatable)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return exitUsage
 	}
@@ -106,6 +114,18 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	c := &cli{stdin: stdin, stdout: stdout, stderr: stderr, file: *file, name: *name,
 		timeout: *timeout, offer: *offer, url: *urlFlag, warn: *warn, jsonOut: *jsonOut,
 		env: env, argv: fs.Args()}
+	// Parsed once, before any verb runs: an unset --header-env variable must
+	// fail as a usage error naming the variable, never as a 401 the proxy
+	// reports as a transport failure.
+	hdrs, warnings, herr := parseHeaders(header, headerEnv)
+	if herr != nil {
+		c.errorf("%v", herr)
+		return exitUsage
+	}
+	c.headers = hdrs
+	for _, w := range warnings {
+		fmt.Fprintln(stderr, "surfacelock: "+safe(w))
+	}
 	if c.jsonOut && (cmd == "pin" || cmd == "proxy") {
 		// Fail closed: a caller asking for the machine contract on a verb that
 		// does not emit it must not silently get the human output instead.
@@ -138,6 +158,7 @@ type cli struct {
 	warn           bool
 	jsonOut        bool
 	env            []string
+	headers        surfacelock.Headers
 	argv           []string
 }
 
@@ -178,8 +199,15 @@ func (c *cli) targetRef() (client.Ref, string, error) {
 		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 			return client.Ref{}, "", fmt.Errorf("--url %q is not an http(s) URL", c.url)
 		}
-		return client.Ref{Transport: "http", Target: c.url, Offered: c.offer}, u.Host, nil
+		return client.Ref{Transport: "http", Target: c.url, Offered: c.offer, Headers: c.headers}, u.Host, nil
 	case len(c.argv) > 0:
+		// REFUSE rather than ignore. A caller who spelled a credential for a
+		// stdio server has a wrong mental model of where it goes, and the
+		// failure of ignoring it is the header never being sent — invisible
+		// here and, on a lock, baked into an artifact taken without it.
+		if len(c.headers) > 0 {
+			return client.Ref{}, "", errors.New("--header/--header-env apply to an http target; a stdio server takes credentials with --env")
+		}
 		ref := client.Ref{Transport: "stdio", Target: c.argv[0], Args: c.argv[1:], Env: c.env, Offered: c.offer}
 		return ref, filepath.Base(c.argv[0]), nil
 	default:
@@ -187,9 +215,27 @@ func (c *cli) targetRef() (client.Ref, string, error) {
 	}
 }
 
-func refFromEntry(e *surfacelock.ServerLock, env []string) client.Ref {
+func refFromEntry(e *surfacelock.ServerLock, env []string, headers surfacelock.Headers) client.Ref {
 	return client.Ref{Transport: e.Transport, Target: e.Target, Args: e.Args,
-		Env: env, Offered: e.Protocol.Offered, Flow: e.Protocol.Flow}
+		Env: env, Headers: headers, Offered: e.Protocol.Offered, Flow: e.Protocol.Flow}
+}
+
+// checkHeaderTransports refuses static headers against a selection that
+// includes a non-http entry. --env is silently ignored by the http transport
+// and that is harmless; a credential silently dropped is not the same class of
+// mistake, and on `pin` it would be baked into a re-locked artifact taken
+// without it. Named entries are checked BEFORE the first fetch, so the refusal
+// cannot half-happen across a multi-entry run.
+func (c *cli) checkHeaderTransports(lf *surfacelock.Lockfile, names []string) error {
+	if len(c.headers) == 0 {
+		return nil
+	}
+	for _, name := range names {
+		if e := lf.Servers[name]; e != nil && e.Transport != "http" {
+			return fmt.Errorf("--header/--header-env apply to an http upstream; entry %q is %s (a stdio upstream takes credentials with --env)", name, e.Transport)
+		}
+	}
+	return nil
 }
 
 func (c *cli) fetchSurface(ref client.Ref) (*surfacelock.Surface, error) {
@@ -291,9 +337,13 @@ func (c *cli) pin() int {
 	if code != exitOK {
 		return code
 	}
+	if err := c.checkHeaderTransports(lf, names); err != nil {
+		c.errorf("%v", err)
+		return exitUsage
+	}
 	for _, name := range names {
 		old := lf.Servers[name]
-		surface, err := c.fetchSurface(refFromEntry(old, c.env))
+		surface, err := c.fetchSurface(refFromEntry(old, c.env, c.headers))
 		if err != nil {
 			c.errorf("%s: %v", name, err)
 			return exitFor(err)
@@ -350,10 +400,18 @@ func (c *cli) proxy() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 
+	// The transport comes from the ENTRY here, not from a flag, so this is the
+	// only place the stdio/headers mismatch can be caught for the proxy verb.
+	if len(c.headers) > 0 && entry.Transport != "http" {
+		c.errorf("--header/--header-env apply to an http upstream; entry %q is %s (a stdio upstream takes credentials with --env)", name, entry.Transport)
+		return exitUsage
+	}
+
 	out, err := proxy.Run(ctx, proxy.Config{
 		Name:        name,
 		Entry:       entry,
 		Env:         c.env,
+		Headers:     c.headers,
 		Warn:        c.warn,
 		Limits:      surfacelock.DefaultLimits(),
 		Findings:    c.stderr,
@@ -426,11 +484,15 @@ func (c *cli) compare(verbose bool) int {
 	// Process every entry; a per-entry failure must NOT early-return, or an entry
 	// that already drifted would have its verdict masked by a later entry's transport
 	// error. worst tracks the most serious outcome by the precedence in worse().
+	if err := c.checkHeaderTransports(lf, names); err != nil {
+		c.errorf("%v", err)
+		return exitUsage
+	}
 	worst := exitOK
 	drifted := false
 	for _, name := range names {
 		entry := lf.Servers[name]
-		surface, err := c.fetchSurface(refFromEntry(entry, c.env))
+		surface, err := c.fetchSurface(refFromEntry(entry, c.env, c.headers))
 		if err != nil {
 			c.errorf("%s: %v", name, err)
 			code := exitFor(err)

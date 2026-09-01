@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/JsizzleR/surfacelock"
 )
 
 // httpBackend bridges the stdio front to a Streamable HTTP upstream: each
@@ -23,6 +25,7 @@ type httpBackend struct {
 	name        string
 	url         string
 	client      *http.Client
+	headers     surfacelock.Headers // static, applied first so the protocol's own headers win
 	frames      chan []byte
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -40,16 +43,36 @@ type httpBackend struct {
 
 const httpCloseTimeout = 5 * time.Second
 
-func newHTTPBackend(target string, finding func(string, ...any), onTransport func()) (*httpBackend, error) {
+func newHTTPBackend(target string, headers surfacelock.Headers, finding func(string, ...any), onTransport func()) (*httpBackend, error) {
 	u, err := url.Parse(target)
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return nil, fmt.Errorf("target %q is not an http(s) URL", target)
 	}
+	if err := headers.Validate(); err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &httpBackend{
-		url: target, client: &http.Client{}, frames: make(chan []byte, 64),
+		url: target, client: &http.Client{}, headers: headers, frames: make(chan []byte, 64),
 		ctx: ctx, cancel: cancel, finding: finding, onTransport: onTransport,
 	}, nil
+}
+
+// newRequest is the ONLY place this backend builds an HTTP request. All three
+// of its request paths — the POST round trip, the SSE notification GET, and the
+// teardown DELETE — must carry the caller's static headers, and the DELETE is
+// the one that hides a mistake: its failure is swallowed by design, so a
+// credential missing there leaks a session on the upstream and says nothing.
+// One constructor is what makes "every request" checkable rather than
+// remembered; backend_http_headers_test.go gates that no other request is built
+// in this file.
+func (b *httpBackend) newRequest(ctx context.Context, method string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, b.url, body)
+	if err != nil {
+		return nil, err
+	}
+	b.headers.Apply(req)
+	return req, nil
 }
 
 // Send POSTs one client frame. It returns immediately; the response (or a
@@ -105,7 +128,7 @@ func cheapMetaEra(params json.RawMessage) string {
 
 func (b *httpBackend) roundTrip(frame []byte, idRaw json.RawMessage, reqEra string) {
 	defer b.wg.Done()
-	req, err := http.NewRequestWithContext(b.ctx, http.MethodPost, b.url, bytes.NewReader(frame))
+	req, err := b.newRequest(b.ctx, http.MethodPost, bytes.NewReader(frame))
 	if err != nil {
 		b.transportFailure(idRaw, fmt.Sprintf("bad upstream request: %v", err))
 		return
@@ -245,7 +268,7 @@ func (b *httpBackend) StartNotificationStream() {
 func (b *httpBackend) notifLoop() {
 	defer b.wg.Done()
 	for b.ctx.Err() == nil {
-		req, err := http.NewRequestWithContext(b.ctx, http.MethodGet, b.url, nil)
+		req, err := b.newRequest(b.ctx, http.MethodGet, nil)
 		if err != nil {
 			return
 		}
@@ -327,7 +350,7 @@ func (b *httpBackend) Close() {
 			// out a session id and then stalls the DELETE must not extend teardown.
 			ctx, cancel := context.WithTimeout(context.Background(), httpCloseTimeout)
 			defer cancel()
-			if req, err := http.NewRequestWithContext(ctx, http.MethodDelete, b.url, nil); err == nil {
+			if req, err := b.newRequest(ctx, http.MethodDelete, nil); err == nil {
 				req.Header.Set("Mcp-Session-Id", sid)
 				if resp, err := b.client.Do(req); err == nil {
 					resp.Body.Close()

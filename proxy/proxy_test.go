@@ -645,10 +645,15 @@ func TestBatchFrameRefused(t *testing.T) {
 	if got := h.expectUpstream(); !bytes.Contains(got, []byte("notifications/marker")) {
 		t.Fatalf("batch frame was forwarded upstream: %s", got)
 	}
+	h.finish()
+	// AFTER finish, never before: finding() stages a line on findCh and a
+	// separate goroutine writes it to Findings, so nothing orders a read here
+	// against a frame the core has already handled. Run drains findCh before
+	// returning, so finish() is the happens-before this assertion needs.
+	// Measured before the move: 14 failures in 200 runs at v0.2.0.
 	if !strings.Contains(h.findings.String(), "batching") {
 		t.Fatalf("batch refusal not reported:\n%s", h.findings.String())
 	}
-	h.finish()
 }
 
 func TestToolsListBeforeHandshakeRefused(t *testing.T) {
@@ -887,10 +892,17 @@ func TestRefusalSanitizesHostileToolNames(t *testing.T) {
 	if strings.ContainsRune(msg, 0x1b) {
 		t.Fatalf("refusal message leaked a raw escape byte: %q", msg)
 	}
-	if strings.ContainsRune(h.findings.String(), 0x1b) {
-		t.Fatalf("findings leaked a raw escape byte:\n%q", h.findings.String())
-	}
 	h.finish()
+	// AFTER finish for the same reason as TestBatchFrameRefused — and here the
+	// early read was worse than flaky: "no escape byte" is satisfied by an
+	// EMPTY buffer, so the leg could pass while the sanitizer did nothing.
+	f := h.findings.String()
+	if !strings.Contains(f, "INADMISSIBLE REFUSED") {
+		t.Fatalf("no refusal finding to inspect — this leg would pass on an empty buffer:\n%q", f)
+	}
+	if strings.ContainsRune(f, 0x1b) {
+		t.Fatalf("findings leaked a raw escape byte:\n%q", f)
+	}
 }
 
 func TestWarnDriftedPageThenCleanFinalPageNoFalseCorruption(t *testing.T) {

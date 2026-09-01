@@ -161,7 +161,7 @@ func TestHTTPBackendJSONRoundTripAndSessionHeaders(t *testing.T) {
 	}))
 	t.Cleanup(ts.Close)
 
-	b, err := newHTTPBackend(ts.URL, func(string, ...any) {}, func() {})
+	b, err := newHTTPBackend(ts.URL, nil, func(string, ...any) {}, func() {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestHTTPBackendStreamsSSEEventsAsTheyArrive(t *testing.T) {
 	}))
 	t.Cleanup(ts.Close)
 
-	b, err := newHTTPBackend(ts.URL, func(string, ...any) {}, func() {})
+	b, err := newHTTPBackend(ts.URL, nil, func(string, ...any) {}, func() {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +235,7 @@ func TestHTTPBackendNon2xxIsTransportNeverDrift(t *testing.T) {
 	var findings []string
 	transported := false
 	var mu sync.Mutex
-	b, err := newHTTPBackend(ts.URL,
+	b, err := newHTTPBackend(ts.URL, nil,
 		func(format string, args ...any) {
 			mu.Lock()
 			findings = append(findings, fmt.Sprintf(format, args...))
@@ -279,7 +279,7 @@ func TestHTTPBackendStreamEndingWithoutResponseIsTransport(t *testing.T) {
 		fmt.Fprintf(w, "data: %s\n\n", `{"jsonrpc":"2.0","method":"notifications/progress"}`)
 	}))
 	t.Cleanup(ts.Close)
-	b, err := newHTTPBackend(ts.URL, func(string, ...any) {}, func() {})
+	b, err := newHTTPBackend(ts.URL, nil, func(string, ...any) {}, func() {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +306,7 @@ func TestHTTPBackendGETNotificationStreamRelays(t *testing.T) {
 		<-r.Context().Done()
 	}))
 	t.Cleanup(ts.Close)
-	b, err := newHTTPBackend(ts.URL, func(string, ...any) {}, func() {})
+	b, err := newHTTPBackend(ts.URL, nil, func(string, ...any) {}, func() {})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -59,6 +59,12 @@ type Config struct {
 	// Env is extra KEY=VAL environment for a stdio upstream (never recorded in
 	// a lockfile; secrets ride the environment, not the artifact).
 	Env []string
+	// Headers are static HTTP request headers attached to every request an
+	// http upstream is sent — the credential channel a token-gated endpoint
+	// needs. Env's counterpart for the other transport, with the same posture:
+	// never recorded in a lockfile. Ignored for a stdio upstream; the CLI
+	// refuses the combination rather than ignoring it silently.
+	Headers surfacelock.Headers
 	// Warn forwards non-prompt-text drift (schema, metadata, era, flow,
 	// removed) with a warning instead of refusing. Drift that introduces
 	// unreviewed prompt text — description or instructions changes, added
@@ -178,7 +184,7 @@ func Run(ctx context.Context, cfg Config, clientIn io.Reader, clientOut io.Write
 		case "stdio":
 			backend, err = newStdioBackend(cfg.Entry.Target, cfg.Entry.Args, cfg.Env, cfg.ChildStderr)
 		case "http":
-			backend, err = newHTTPBackend(cfg.Entry.Target, c.finding, c.setTransport)
+			backend, err = newHTTPBackend(cfg.Entry.Target, cfg.Headers, c.finding, c.setTransport)
 		default:
 			err = fmt.Errorf("unknown transport %q", cfg.Entry.Transport)
 		}

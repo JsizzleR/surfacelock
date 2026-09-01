@@ -33,12 +33,46 @@ treats the tool surface like a dependency:
 {"command":"surfacelock","args":["proxy","--file","/abs/path/tools.lock","--name","some-server"]}
 ```
 
+### Servers behind a credential
+
+An HTTP MCP endpoint sitting behind an authenticator answers an uncredentialed
+fetch with a transport failure — which is honest, and useless: the surface is
+never reached, so no verb can say anything about it. `--header` attaches a static
+header to every request the http transport makes, on every verb:
+
+```jsonc
+// the credential is read from the environment, so it is never in argv, where
+// any local process can read it for as long as the proxy runs:
+{
+  "command": "surfacelock",
+  "args": ["proxy", "--file", "/abs/path/tools.lock", "--name", "some-server",
+           "--header-env", "Authorization: MCP_TOKEN"],
+  "env": {"MCP_TOKEN": "Bearer ..."}
+}
+```
+
+`--header NAME:VALUE` takes the value literally and `--header-env NAME:VAR` reads
+it from an environment variable at startup; both repeat. Three properties are
+enforced rather than documented:
+
+- **Neither is ever written to `tools.lock`.** A credential is not part of a
+  server's reviewed surface, and the lockfile is a file you commit.
+- **The protocol's own headers win.** A static `Content-Type`, `Mcp-Session-Id`
+  or `MCP-Protocol-Version` cannot displace what the session computed — framing
+  and session state are the transport's, not an operator's.
+- **An unset `--header-env` variable is a usage error**, not an absent header.
+  An absent credential is a 401, which is reported as a transport failure — a
+  true sentence about the wrong cause.
+
+They apply to the http transport; a stdio server takes its credentials through
+`--env`, and naming both is refused rather than silently ignored.
+
 ## Install
 
 **From source** (Go 1.26+), which is also how CI pins an exact revision:
 
 ```sh
-go install github.com/JsizzleR/surfacelock/cmd/surfacelock@v0.2.0
+go install github.com/JsizzleR/surfacelock/cmd/surfacelock@v0.2.1
 ```
 
 **Prebuilt binaries** are attached to each GitHub release for darwin/arm64,
@@ -51,7 +85,7 @@ darwin/amd64, linux/amd64 and linux/arm64 — one static binary each, built with
 platform from the release assets —
 
 ```sh
-uv pip install ./surfacelock-0.2.0-py3-none-macosx_12_0_arm64.whl
+uv pip install ./surfacelock-0.2.1-py3-none-macosx_12_0_arm64.whl
 ```
 
 **npm** — a launcher package plus one platform package per binary, resolved by
