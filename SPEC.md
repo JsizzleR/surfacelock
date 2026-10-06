@@ -1,6 +1,6 @@
 # tools.lock — format specification, version 0
 
-**Status: shipped in surfacelock v0.2.3, `lockfile_version` 1.** This is a v0 format and
+**Status: shipped in surfacelock v0.2.4, `lockfile_version` 1.** This is a v0 format and
 the project is pre-1.0: the MUSTs below can still change, but no longer silently — a
 change that would make an existing lockfile read differently arrives as a
 `lockfile_version` bump, and the release notes say so.
@@ -171,6 +171,11 @@ outright), so a fetcher MUST select its flow from the offered revision:
   `server/discover` (whose result supplies `instructions` and `server_info`, and whose
   `supportedVersions` MUST include the offered revision), then fully-paginated
   `tools/list` with the full `_meta` envelope on every request, no handshake.
+  Over Streamable HTTP every stateless request ALSO carries the revision's
+  request-metadata headers, which MUST agree with the body: `MCP-Protocol-Version`
+  equal to the offered revision and `Mcp-Method` equal to the method (a
+  spec-conformant server refuses `server/discover` without them, `-32020`). A
+  classic-flow request carries no `Mcp-Method`; the earlier revisions define none.
   A version-confirmed `server/discover` is the flow's COMMIT POINT: every later
   failure (page caps, cursor loops, inadmissible pages) is terminal for the fetch —
   a second enumeration over the classic flow would let a hostile hybrid serve

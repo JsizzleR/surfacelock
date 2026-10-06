@@ -82,6 +82,8 @@ var reservedNames = map[string]string{
 	"USER-AGENT":           "the transport sets it, so a static one is accepted and then ignored",
 	"MCP-SESSION-ID":       "the session owns its own id",
 	"MCP-PROTOCOL-VERSION": "the handshake owns the negotiated era",
+	"MCP-METHOD":           "the transport mirrors it from the request body",
+	"MCP-NAME":             "the transport mirrors it from the request body",
 	"LAST-EVENT-ID":        "the stream owns its own resume position",
 	"HOST":                 "net/http derives it from the URL",
 	"CONTENT-LENGTH":       "net/http derives it from the body",

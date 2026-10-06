@@ -52,16 +52,46 @@ func fullMeta(in rpcIn) bool {
 	return true
 }
 
+// modernHeaderMismatch is the reference SDKs' header rung (measured on
+// @modelcontextprotocol/server 2.3.1 and Python mcp 2.3.0; the 2026-07-28
+// Streamable HTTP spec, "Server Validation"): a modern request whose
+// MCP-Protocol-Version header does not equal its _meta protocolVersion, or whose
+// Mcp-Method header does not equal its body method, is refused 400 / -32020.
+// It returns the refusal text, or "" when the headers agree with the body.
+func modernHeaderMismatch(r *http.Request, in rpcIn) string {
+	var era string
+	if raw, ok := in.Params.Meta[metaProtocolVersionKey]; ok {
+		json.Unmarshal(raw, &era)
+	}
+	if got := r.Header.Values("MCP-Protocol-Version"); len(got) != 1 || got[0] != era {
+		return fmt.Sprintf("MCP-Protocol-Version header %q does not match the envelope's %q", got, era)
+	}
+	if got := r.Header.Values("Mcp-Method"); len(got) != 1 || got[0] != in.Method {
+		return fmt.Sprintf("Mcp-Method header %q does not match the body method %q", got, in.Method)
+	}
+	return ""
+}
+
 // modernOnlyHandler mimics the measured bridge face: initialize is refused with
 // HTTP 400 (the handshake was removed), server/discover and tools/list demand the
-// full three-key _meta envelope. Pages carry the modern envelope extras
-// (cacheScope/resultType), which admission must tolerate.
+// full three-key _meta envelope AND the request-metadata headers that mirror it.
+// Pages carry the modern envelope extras (cacheScope/resultType), which
+// admission must tolerate.
 func modernOnlyHandler(t *testing.T, sawDiscover *atomic.Int64) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var in rpcIn
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			t.Errorf("bad request body: %v", err)
 			return
+		}
+		if in.Method == "server/discover" || in.Method == "tools/list" {
+			if why := modernHeaderMismatch(r, in); why != "" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": in.ID,
+					"error": map[string]any{"code": -32020, "message": "Bad Request: the request headers and body disagree: " + why}})
+				return
+			}
 		}
 		switch in.Method {
 		case "initialize":
@@ -116,6 +146,11 @@ func statefulClassicHandler(t *testing.T) http.HandlerFunc {
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			t.Errorf("bad request body: %v", err)
 			return
+		}
+		// The classic flow speaks a revision that defines no Mcp-Method; only the
+		// stateless attempt's discover (refused below) may carry one.
+		if in.Method != "server/discover" && len(r.Header.Values("Mcp-Method")) != 0 {
+			t.Errorf("classic %s carried Mcp-Method %q", in.Method, r.Header.Values("Mcp-Method"))
 		}
 		switch in.Method {
 		case "server/discover":

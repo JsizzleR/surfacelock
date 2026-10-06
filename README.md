@@ -77,13 +77,16 @@ What is enforced rather than documented:
   and the upstream is what a proxy exists to distrust. A `3xx` is reported as
   the transport failure it is.
 - **Names the transport owns cannot be set.** `Content-Type`, `Accept`,
-  `Accept-Encoding`, `User-Agent`, `Mcp-Session-Id`, `MCP-Protocol-Version` and
-  `Last-Event-ID` are refused, not merely outranked: the session ones are sent
-  only when the transport HAS them, so on the handshake — the request that
-  decides the dialect — a static value would go out unopposed. `Host`,
-  `Content-Length`, `Transfer-Encoding`, `Trailer` and the hop-by-hop controls
-  are refused too, because `net/http` derives or owns them and setting one is a
-  silent no-op.
+  `Accept-Encoding`, `User-Agent`, `Mcp-Session-Id`, `MCP-Protocol-Version`,
+  `Mcp-Method`, `Mcp-Name` and `Last-Event-ID` are refused, not merely
+  outranked: the session ones are sent only when the transport HAS them, so on
+  the handshake — the request that decides the dialect — a static value would go
+  out unopposed; and `Mcp-Method`/`Mcp-Name` mirror the request body, which a
+  static value could only contradict. (`Mcp-Param-*` is not reserved: the proxy
+  does not yet mirror `x-mcp-header` tool arguments, and a static one is the
+  only way to supply a fixed annotated argument until it does.) `Host`, `Content-Length`, `Transfer-Encoding`, `Trailer` and the
+  hop-by-hop controls are refused too, because `net/http` derives or owns them
+  and setting one is a silent no-op.
 - **One credential, one entry.** `verify`, `diff` and `pin` select *every* entry
   when `--name` is absent, so a header there would be sent to every HTTP
   upstream the lockfile names. A header with more than one entry selected is
@@ -103,7 +106,7 @@ They apply to the http transport; a stdio server takes its credentials through
 **From source** (Go 1.26+), which is also how CI pins an exact revision:
 
 ```sh
-go install github.com/JsizzleR/surfacelock/cmd/surfacelock@v0.2.3
+go install github.com/JsizzleR/surfacelock/cmd/surfacelock@v0.2.4
 ```
 
 **Prebuilt binaries** are attached to each GitHub release for darwin/arm64,
@@ -116,7 +119,7 @@ darwin/amd64, linux/amd64 and linux/arm64 — one static binary each, built with
 platform from the release assets —
 
 ```sh
-uv pip install ./surfacelock-0.2.3-py3-none-macosx_12_0_arm64.whl
+uv pip install ./surfacelock-0.2.4-py3-none-macosx_12_0_arm64.whl
 ```
 
 **npm** — a launcher package plus one platform package per binary, resolved by

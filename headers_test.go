@@ -35,6 +35,8 @@ func TestHeadersValidateRefusesInjectionAndBadNames(t *testing.T) {
 		{"reserved: session state", Headers{"Mcp-Session-Id": "pinned"}, "may not be set"},
 		{"reserved: the negotiated era", Headers{"MCP-Protocol-Version": "2024-11-05"}, "may not be set"},
 		{"reserved, lowercase spelling", Headers{"mcp-protocol-version": "2024-11-05"}, "may not be set"},
+		{"reserved: mirrored method", Headers{"Mcp-Method": "tools/list"}, "may not be set"},
+		{"reserved: mirrored name", Headers{"mcp-name": "frob"}, "may not be set"},
 		{"derived by net/http: Host", Headers{"Host": "other"}, "may not be set"},
 		{"derived by net/http: Content-Length", Headers{"Content-Length": "9"}, "may not be set"},
 		{"case-variant duplicate", Headers{"Authorization": "a", "authorization": "b"}, "same HTTP field name"},

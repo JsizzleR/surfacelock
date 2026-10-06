@@ -105,7 +105,8 @@ type httpSession struct {
 	client    *http.Client
 	headers   surfacelock.Headers // static, applied first so the protocol's own headers win
 	sessionID string
-	proto     string // negotiated; sent as MCP-Protocol-Version after initialize
+	proto     string // sent as MCP-Protocol-Version: the negotiated era after initialize, the offered one on a stateless session
+	stateless bool   // every request also mirrors its method as Mcp-Method (2026-07-28 request metadata)
 	nextID    int64
 	pageCap   int
 }
@@ -160,7 +161,7 @@ func (h *httpSession) newRequest(ctx context.Context, method string, body io.Rea
 	return req, nil
 }
 
-func (h *httpSession) post(ctx context.Context, body []byte) (*http.Response, error) {
+func (h *httpSession) post(ctx context.Context, method string, body []byte) (*http.Response, error) {
 	req, err := h.newRequest(ctx, http.MethodPost, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -174,6 +175,17 @@ func (h *httpSession) post(ctx context.Context, body []byte) (*http.Response, er
 	if h.proto != "" {
 		req.Header.Set("MCP-Protocol-Version", h.proto)
 	}
+	// The 2026-07-28 Streamable HTTP transport mirrors body fields into headers
+	// so an intermediary can route without parsing, and a server MUST refuse a
+	// request whose headers are missing or disagree with its body (-32020;
+	// measured: the reference TypeScript SDK refuses server/discover without
+	// them). Mcp-Name is owed only by named invocations (tools/call,
+	// resources/read, prompts/get, and tasks/* under SEP-2663), none of which
+	// this client sends. A classic-flow request carries neither: the earlier
+	// revisions define no such header.
+	if h.stateless {
+		req.Header.Set("Mcp-Method", method)
+	}
 	return h.client.Do(req)
 }
 
@@ -184,7 +196,7 @@ func (h *httpSession) call(ctx context.Context, method string, params any) (json
 	if err != nil {
 		return nil, err
 	}
-	resp, err := h.post(ctx, body)
+	resp, err := h.post(ctx, method, body)
 	if err != nil {
 		return nil, err
 	}
@@ -269,7 +281,7 @@ func (h *httpSession) notify(ctx context.Context, method string, params any) err
 	if err != nil {
 		return err
 	}
-	resp, err := h.post(ctx, body)
+	resp, err := h.post(ctx, method, body)
 	if err != nil {
 		return err
 	}

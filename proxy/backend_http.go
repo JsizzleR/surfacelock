@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -104,8 +105,84 @@ func (b *httpBackend) Send(_ context.Context, frame []byte) error {
 	}
 	b.wg.Add(1)
 	b.mu.Unlock()
-	go b.roundTrip(frame, idRaw, cheapMetaEra(obj["params"]))
+	go b.roundTrip(frame, idRaw, cheapMetaEra(obj["params"]), obj["method"], obj["params"])
 	return nil
+}
+
+// nameBearing maps each method that owes an Mcp-Name header to the params
+// member it mirrors: the three rows of the 2026-07-28 Streamable HTTP
+// "Standard Request Headers" table, and the tasks/* rows of SEP-2663's
+// Streamable HTTP binding, which the reference TypeScript SDK 2.3.1 enforces
+// (its MCP_NAME_HEADER_SOURCE table refuses a tasks/* request without Mcp-Name,
+// -32020; the Python SDK 2.3.0 checks only the first three and ignores the
+// header on the rest).
+var nameBearing = map[string]string{
+	"tools/call":     "name",
+	"prompts/get":    "name",
+	"resources/read": "uri",
+	"tasks/get":      "taskId",
+	"tasks/update":   "taskId",
+	"tasks/cancel":   "taskId",
+}
+
+// requestMetadata derives the Mcp-Method and Mcp-Name header values a stateless
+// frame owes from the SAME bytes the backend forwards. The upstream compares
+// each header with its own reading of the body and refuses a disagreement
+// (-32020), so the derivation is exact-key (a map, never a struct — encoding/json
+// folds case into struct fields) and last-wins on a duplicate member, as
+// JSON.parse and Python's json are (the core's envelope discipline refuses
+// duplicates and case-variant aliases only at the TOP level; inside params this
+// agreement is what holds). Where Go cannot represent the body's string — a
+// lone-surrogate escape decodes to U+FFFD here and not upstream — the header
+// disagrees and the upstream refuses: fail-closed, never a misdescribed call.
+// Mcp-Method is sent raw: the sentinel encoding applies to Mcp-Name only, and
+// both reference SDKs compare Mcp-Method to the body byte for byte. A member that is not a
+// string — null included, which encoding/json would otherwise decode into ""
+// without an error — has no header form: it is left absent and the upstream's
+// own validation decides. This function never invents a value to make one agree.
+func requestMetadata(methodRaw, params json.RawMessage) (method, name string, hasName bool) {
+	if json.Unmarshal(methodRaw, &method) != nil {
+		return "", "", false
+	}
+	key, ok := nameBearing[method]
+	if !ok {
+		return method, "", false
+	}
+	var p map[string]json.RawMessage
+	if json.Unmarshal(params, &p) != nil {
+		return method, "", false
+	}
+	raw, ok := p[key]
+	if !ok || isJSONNull(raw) || json.Unmarshal(raw, &name) != nil {
+		return method, "", false
+	}
+	return method, encodeHeaderValue(name), true
+}
+
+const (
+	b64SentinelPrefix = "=?base64?"
+	b64SentinelSuffix = "?="
+)
+
+// encodeHeaderValue is the revision's Value Encoding rule: printable ASCII with
+// no leading or trailing space travels verbatim; anything else — a control
+// character, non-ASCII, edge whitespace, or a plain value that starts with
+// =?base64? and ends with ?= — travels as =?base64?<std base64 of the UTF-8>?=,
+// so the server recovers the exact bytes to compare. The sentinel test is the
+// spec's literal prefix-and-suffix predicate, so the overlapping "=?base64?="
+// is encoded too: the reference Python SDK would pass it plain (its pattern
+// needs both markers whole) but decodes the encoded form to the same bytes, and
+// a receiver that applies the spec's predicate would otherwise misread it.
+func encodeHeaderValue(v string) string {
+	plain := !strings.HasPrefix(v, " ") && !strings.HasSuffix(v, " ") &&
+		!(strings.HasPrefix(v, b64SentinelPrefix) && strings.HasSuffix(v, b64SentinelSuffix))
+	for i := 0; plain && i < len(v); i++ {
+		plain = v[i] >= 0x20 && v[i] <= 0x7e
+	}
+	if plain {
+		return v
+	}
+	return b64SentinelPrefix + base64.StdEncoding.EncodeToString([]byte(v)) + b64SentinelSuffix
 }
 
 // cheapMetaEra extracts the reserved _meta protocolVersion for the
@@ -136,7 +213,7 @@ func cheapMetaEra(params json.RawMessage) string {
 	return era
 }
 
-func (b *httpBackend) roundTrip(frame []byte, idRaw json.RawMessage, reqEra string) {
+func (b *httpBackend) roundTrip(frame []byte, idRaw json.RawMessage, reqEra string, methodRaw, params json.RawMessage) {
 	defer b.wg.Done()
 	req, err := b.newRequest(b.ctx, http.MethodPost, bytes.NewReader(frame))
 	if err != nil {
@@ -154,6 +231,17 @@ func (b *httpBackend) roundTrip(frame []byte, idRaw json.RawMessage, reqEra stri
 	b.mu.Unlock()
 	if reqEra != "" {
 		proto = reqEra // stateless: each request names the dialect it speaks
+		// ...and mirrors its method (and, where owed, its name) into headers
+		// the server checks against the body. The stdio front has no headers to
+		// pass through, so these are built here or not at all. A classic frame
+		// gets neither: its revision defines no such header.
+		method, name, hasName := requestMetadata(methodRaw, params)
+		if method != "" {
+			req.Header.Set("Mcp-Method", method)
+		}
+		if hasName {
+			req.Header.Set("Mcp-Name", name)
+		}
 	}
 	if proto != "" {
 		req.Header.Set("MCP-Protocol-Version", proto)

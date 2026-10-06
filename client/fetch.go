@@ -208,6 +208,15 @@ func resultFields(raw json.RawMessage, what string, keys ...string) (map[string]
 // to and including that confirmation is wrapped errPreCommit; nothing after it
 // is.
 func fetchModern(ctx context.Context, sess session, offered string, lim surfacelock.Limits) (*surfacelock.RawSurface, error) {
+	// Every stateless request names its dialect in an HTTP header as well as in
+	// _meta, and the two MUST agree — server/discover included, which is the
+	// request that decides the flow. Setting this only after the commit point
+	// (as before) sent discover header-less, and a spec-conformant server
+	// refused it (measured, SDK 2.3.1 legacy:'reject': exit 3; its default
+	// posture fell back to classic and the surface was era-tagged 2025-11-25).
+	if h, ok := sess.(*httpSession); ok {
+		h.proto, h.stateless = offered, true
+	}
 	discRaw, err := sess.call(ctx, "server/discover", map[string]any{"_meta": metaEnvelope(offered)})
 	if err != nil {
 		return nil, errPreCommit{err}
@@ -227,9 +236,6 @@ func fetchModern(ctx context.Context, sess session, offered string, lim surfacel
 	}
 	// The commit point: the server has confirmed it serves the offered
 	// stateless revision. From here every failure is terminal for the fetch.
-	if h, ok := sess.(*httpSession); ok {
-		h.proto = offered
-	}
 	raw := &surfacelock.RawSurface{
 		Offered:      offered,
 		Era:          offered,
