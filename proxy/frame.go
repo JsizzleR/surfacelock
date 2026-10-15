@@ -30,7 +30,12 @@ var errNotObject = errors.New("frame is not a JSON object")
 // does not canonicalize: nested content (tool-call arguments, tool results) is not
 // consumed by the proxy and may be arbitrarily large, so the check must be a
 // single bounded pass over tokens, not a full transform.
-func checkEnvelope(raw []byte) error {
+func checkEnvelope(raw []byte) error { return checkMembers(raw, "frame", envelopeKeys) }
+
+// checkMembers is checkEnvelope's walk over any object whose top-level members
+// the proxy consumes: duplicate member names and case-variant aliases of the
+// consumed keys are refused, nested values are skipped unread.
+func checkMembers(raw []byte, what string, consumed []string) error {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	t, err := dec.Token()
@@ -46,7 +51,7 @@ func checkEnvelope(raw []byte) error {
 	for depth > 0 {
 		t, err := dec.Token()
 		if err != nil {
-			return fmt.Errorf("frame does not parse: %w", err)
+			return fmt.Errorf("%s does not parse: %w", what, err)
 		}
 		if d, ok := t.(json.Delim); ok {
 			switch d {
@@ -69,15 +74,15 @@ func checkEnvelope(raw []byte) error {
 		}
 		k, ok := t.(string)
 		if !ok {
-			return errors.New("frame has a non-string member name")
+			return fmt.Errorf("%s has a non-string member name", what)
 		}
 		if seen[k] {
-			return fmt.Errorf("frame has a duplicate top-level member %.32q", k)
+			return fmt.Errorf("%s has a duplicate top-level member %.32q", what, k)
 		}
 		seen[k] = true
-		for _, want := range envelopeKeys {
+		for _, want := range consumed {
 			if k != want && strings.EqualFold(k, want) {
-				return fmt.Errorf("frame carries a case-variant of %q: %.32q", want, k)
+				return fmt.Errorf("%s carries a case-variant of %q: %.32q", what, want, k)
 			}
 		}
 		expectKey = false // next token is this member's value
@@ -85,7 +90,7 @@ func checkEnvelope(raw []byte) error {
 	// json.Decoder tracks nesting itself; when the object closes, anything left is
 	// trailing content — two documents on one line are not one frame.
 	if dec.More() {
-		return errors.New("trailing content after the frame")
+		return fmt.Errorf("trailing content after the %s", what)
 	}
 	return nil
 }
@@ -227,4 +232,5 @@ const (
 	codeInadmissibleRefused = -32051 // hostile/inadmissible bytes: no verdict possible
 	codeTransportFailed     = -32052 // upstream transport failure: honest error, never a drift verdict
 	codeProxyRefused        = -32053 // proxy-level refusal of a client frame (caps, unverifiable envelope)
+	codeCallRefused         = -32054 // tools/call of a tool this session was never served verified
 )

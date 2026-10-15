@@ -1,6 +1,6 @@
 # tools.lock — format specification, version 0
 
-**Status: shipped in surfacelock v0.2.4, `lockfile_version` 1.** This is a v0 format and
+**Status: shipped in surfacelock v0.2.5, `lockfile_version` 1.** This is a v0 format and
 the project is pre-1.0: the MUSTs below can still change, but no longer silently — a
 change that would make an existing lockfile read differently arrives as a
 `lockfile_version` bump, and the release notes say so.
@@ -273,7 +273,12 @@ produces a drift verdict.
   whose `name` is not a string.
 - **Invalid names** — `name` empty, longer than 128 bytes, not valid UTF-8, or
   containing code points below U+0020 or U+007F (DEL). Names are map keys, sort keys,
-  and terminal output; control characters in them are attacks on all three.
+  and terminal output; control characters in them are attacks on all three. Also a
+  `name` whose wire token carries an unpaired UTF-16 surrogate escape (`"x\ud83dA"`,
+  `"x\ud83d\u0041"`, `"x\udc00"`): decoders disagree on what it names (Go's
+  `encoding/json` replaces the lone half with U+FFFD, JavaScript and Python keep it).
+  RFC 8785 requires refusing lone surrogates, but a library may accept some of these
+  forms (measured), so this MUST be checked on the raw token.
 - **Type-invalid fields** — `description` present but not a string; `inputSchema`
   present but not an object. Exception: a JSON `null` value for `description`,
   `inputSchema`, or `instructions` is treated as absent (a serializer artifact, not

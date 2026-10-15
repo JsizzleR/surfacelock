@@ -11,6 +11,13 @@
 // different remedies and different error codes: an unreachable server is an
 // honest error, never a drift verdict, and vice versa.
 //
+// It GATES tools/call ON WHAT IT VERIFIED: a call is forwarded only for a tool
+// on the session's verified tool list — the tools on the tools/list pages this
+// proxy verified for this session — and every refused surface verdict empties
+// that list. Refusing the drifted list alone is not enough: a client that calls the
+// drifted tool anyway (from a cached list, or a model told its name) would have
+// a tool executed whose current declaration was refused.
+//
 // The threat this closes: an out-of-band audit (`surfacelock verify`, a
 // deploy-gate attestation) can be cloaked — a hostile server can serve the
 // auditor clean bytes and the victim's session poisoned ones, because it can
@@ -28,6 +35,7 @@ import (
 	"io"
 	"sync"
 	"sync/atomic"
+	"unicode/utf8"
 
 	"github.com/JsizzleR/surfacelock"
 )
@@ -276,7 +284,6 @@ func (c *core) drainFindings() {
 	}
 }
 
-func (c *core) setDrift()        { c.mu.Lock(); c.outcome.Drift = true; c.mu.Unlock() }
 func (c *core) setInadmissible() { c.mu.Lock(); c.outcome.Inadmissible = true; c.mu.Unlock() }
 func (c *core) setTransport()    { c.mu.Lock(); c.outcome.Transport = true; c.mu.Unlock() }
 
@@ -298,18 +305,6 @@ func (c *core) writeFrame(b []byte) {
 	c.outMu.Lock()
 	defer c.outMu.Unlock()
 	c.out.Write(append(b, '\n'))
-}
-
-func (c *core) applyVerdict(vd verdict) {
-	for _, f := range vd.findings {
-		c.finding("%s", f)
-	}
-	if vd.drift {
-		c.setDrift()
-	}
-	if vd.inadmissible {
-		c.setInadmissible()
-	}
 }
 
 // serveClient reads client frames until EOF or ctx cancellation.
@@ -345,6 +340,11 @@ func (c *core) serveClient(ctx context.Context, clientIn io.Reader) {
 // no trustworthy identity (duplicate members, case-variant aliases of consumed
 // keys, batching) is refused, never forwarded: the proxy would otherwise vouch
 // for a response to a request it could not read the way the server does.
+//
+// A tools/call is forwarded only when it names a tool on the session's verified
+// tool list (verifier.callable): a call to a tool this session never verified —
+// because its surface was refused, or because it was never listed — would
+// execute a tool whose declaration nobody checked.
 func (c *core) handleClientFrame(ctx context.Context, line []byte) {
 	f, err := parseFrame(line)
 	if err != nil {
@@ -357,6 +357,12 @@ func (c *core) handleClientFrame(ctx context.Context, line []byte) {
 	}
 
 	if !f.isRequest() {
+		if f.method == "tools/call" {
+			// No id (absent or null) means no response to carry a refusal, but a
+			// server that executes it anyway would run an unchecked call: drop it.
+			c.finding("refused client notification tools/call: a call without an id is never forwarded")
+			return
+		}
 		// A notification, or the client's response to a server-initiated request.
 		c.forwardUpstream(ctx, f.raw)
 		return
@@ -396,12 +402,29 @@ func (c *core) handleClientFrame(ctx context.Context, line []byte) {
 	case "tools/list":
 		vd, pend := c.prepareToolsList(f)
 		if vd != nil {
+			c.applyVerdictLocked(*vd)
 			c.mu.Unlock()
-			c.applyVerdict(*vd)
 			c.writeFrame(errorFrame(f.idRaw, vd.code, vd.msg))
 			return
 		}
 		p = pend
+	case "tools/call":
+		name, err := callToolName(f.obj["params"])
+		if err != nil {
+			c.mu.Unlock()
+			c.finding("refused client request tools/call: %s — not forwarded", boundText(err.Error(), 200))
+			c.writeFrame(errorFrame(f.idRaw, codeProxyRefused,
+				fmt.Sprintf("surfacelock[%s]: unverifiable tools/call params: %s", c.cfg.Name, boundText(err.Error(), 200))))
+			return
+		}
+		if !c.v.callable[name] {
+			c.mu.Unlock()
+			c.finding("CALL REFUSED tools/call %s: not on this session's verified tool list — not forwarded", boundText(fmt.Sprintf("%.64q", name), 200))
+			c.writeFrame(errorFrame(f.idRaw, codeCallRefused,
+				fmt.Sprintf("surfacelock[%s]: CALL REFUSED tools/call %s: the tool is not on this session's verified tool list — a tool becomes callable only through a tools/list page this proxy verified, and a refused surface revokes every tool; if drift was refused, review then: surfacelock pin --name %q",
+					c.cfg.Name, boundText(fmt.Sprintf("%.64q", name), 200), c.cfg.Name)))
+			return
+		}
 	}
 	c.pending[f.idKey] = p
 	c.mu.Unlock()
@@ -462,8 +485,14 @@ func (c *core) prepareToolsList(f *frame) (*verdict, *pendingReq) {
 	return nil, &pendingReq{method: "tools/list", era: era, enum: en}
 }
 
-// applyVerdictLocked is applyVerdict for call sites already holding mu.
+// applyVerdictLocked records a verdict's findings and outcome flags. Called with
+// mu held. A refused verdict also revokes every verified tool: whatever was
+// refused (a drifted or inadmissible page, handshake, or request), the session's
+// surface is no longer one this proxy verified.
 func (c *core) applyVerdictLocked(vd verdict) {
+	if vd.refuse {
+		c.v.revokeCalls()
+	}
 	for _, f := range vd.findings {
 		c.finding("%s", f)
 	}
@@ -502,7 +531,12 @@ func (c *core) handleServerFrame(line []byte) {
 			return // non-JSON noise on a stdio server's stdout is endemic; skip
 		}
 		c.finding("dropped upstream frame with unverifiable envelope: %s", boundText(err.Error(), 200))
-		c.setInadmissible()
+		// Whatever it was (a surface-bearing response among them), the server
+		// sent bytes no verdict can be built on: nothing it verified stays callable.
+		c.mu.Lock()
+		c.outcome.Inadmissible = true
+		c.v.revokeCalls()
+		c.mu.Unlock()
 		return
 	}
 
@@ -632,6 +666,48 @@ func listParams(params json.RawMessage) (cursor, era string, stateless bool, err
 		return "", "", false, err
 	}
 	return cursor, era, stateless, nil
+}
+
+// callToolName reads a tools/call request's tool name as the upstream will. The
+// params object's top level is walked with exact-key discipline (a duplicate
+// member or a case-variant alias of "name" — which encoding/json struct decoding
+// would fold, last-wins — refuses), nested values such as the arguments are
+// never decoded, and the name must be a JSON string Go represents exactly:
+// invalid UTF-8 and lone-surrogate escapes, which encoding/json silently turns
+// into U+FFFD while the upstream keeps them, are refused (surfacelock.PairedSurrogates). A name that passes is
+// compared byte-for-byte with the verified list.
+func callToolName(params json.RawMessage) (string, error) {
+	if params == nil || isJSONNull(params) {
+		return "", errors.New("no params (no tool name)")
+	}
+	if err := checkMembers(params, "tools/call params", []string{"name"}); err != nil {
+		if errors.Is(err, errNotObject) {
+			return "", errors.New("params is not a JSON object")
+		}
+		return "", err
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(params, &obj); err != nil {
+		return "", errors.New("params is not a JSON object")
+	}
+	raw, ok := obj["name"]
+	if !ok {
+		return "", errors.New("params carries no name")
+	}
+	if len(raw) == 0 || raw[0] != '"' {
+		return "", errors.New("name is not a string")
+	}
+	if !utf8.Valid(raw) {
+		return "", errors.New("name is not valid UTF-8")
+	}
+	if !surfacelock.PairedSurrogates(raw) {
+		return "", errors.New("name has no exact string form (a lone surrogate escape)")
+	}
+	var name string
+	if err := json.Unmarshal(raw, &name); err != nil {
+		return "", errors.New("name is not a string")
+	}
+	return name, nil
 }
 
 // discoverParamsEra reads a server/discover request's reserved _meta

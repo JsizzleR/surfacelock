@@ -24,7 +24,12 @@ treats the tool surface like a dependency:
   — strict by default, with `--warn` forwarding non-prompt-text drift only (description
   and instructions changes and added tools refuse even then). Drift, inadmissible
   bytes, and transport failure are distinct refusals with distinct error codes and
-  remedies: an unreachable server is an honest error, never a drift verdict.
+  remedies: an unreachable server is an honest error, never a drift verdict. A
+  `tools/call` is forwarded only for a tool on the session's verified tool list — the
+  tools on the `tools/list` pages this proxy verified for the session — and every refused surface
+  verdict empties that list until a later page re-verifies it, so a tool whose drifted
+  declaration was refused is never called (`-32054`). A call without an id, or whose
+  tool name a decoder could read two ways, is refused too.
 
 ```jsonc
 // where your MCP client config had:  {"command":"npx","args":["-y","some-mcp-server"]}
@@ -106,7 +111,7 @@ They apply to the http transport; a stdio server takes its credentials through
 **From source** (Go 1.26+), which is also how CI pins an exact revision:
 
 ```sh
-go install github.com/JsizzleR/surfacelock/cmd/surfacelock@v0.2.4
+go install github.com/JsizzleR/surfacelock/cmd/surfacelock@v0.2.5
 ```
 
 **Prebuilt binaries** are attached to each GitHub release for darwin/arm64,
@@ -119,7 +124,7 @@ darwin/amd64, linux/amd64 and linux/arm64 — one static binary each, built with
 platform from the release assets —
 
 ```sh
-uv pip install ./surfacelock-0.2.4-py3-none-macosx_12_0_arm64.whl
+uv pip install ./surfacelock-0.2.5-py3-none-macosx_12_0_arm64.whl
 ```
 
 **npm** — a launcher package plus one platform package per binary, resolved by

@@ -671,6 +671,10 @@ func TestDuplicateInFlightIdRefused(t *testing.T) {
 	entry := entryFor(t, eraClassic, surfacelock.FlowClassic, "", toolA)
 	h := newHarness(t, entry, false)
 	classicHandshake(h, "")
+	h.client(listReq(1, "")) // alpha is callable only once a verified page served it
+	h.expectUpstream()
+	h.inject(listResult(1, "", toolA))
+	h.expectClient()
 	h.client(`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"alpha"}}`)
 	h.expectUpstream()
 	h.client(`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"alpha"}}`)

@@ -116,6 +116,12 @@ func TestAdmitHostileInput(t *testing.T) {
 		{"empty name", RawSurface{Era: "e", Pages: pagesOf(`{"name":""}`)}, lim, "is empty"},
 		{"oversized name", RawSurface{Era: "e", Pages: pagesOf(`{"name":"` + strings.Repeat("x", 129) + `"}`)}, lim, "exceeds 128 bytes"},
 		{"control chars in name", RawSurface{Era: "e", Pages: pagesOf(`{"name":"a\nb"}`)}, lim, "control characters"},
+		// JCS refuses these two forms at the page ("Missing surrogate")...
+		{"unpaired surrogate in name", RawSurface{Era: "e", Pages: pagesOf(`{"name":"x\ud83dA"}`)}, lim, "surrogate"},
+		{"lone low surrogate in name", RawSurface{Era: "e", Pages: pagesOf(`{"name":"x\udc00"}`)}, lim, "surrogate"},
+		// ...and accepts this one, which only the name's own raw-token check refuses.
+		{"high surrogate before a non-surrogate escape", RawSurface{Era: "e", Pages: pagesOf(`{"name":"x\ud83d\u0041"}`)}, lim, "unpaired surrogate"},
+		{"paired surrogate name admitted", RawSurface{Era: "e", Pages: pagesOf(`{"name":"x\ud83d\ude00"}`)}, lim, ""},
 		{"esc-injection name", RawSurface{Era: "e", Pages: pagesOf("{\"name\":\"a\\u001b[31mred\"}")}, lim, "control characters"},
 		{"non-string description", RawSurface{Era: "e", Pages: pagesOf(`{"name":"a","description":7}`)}, lim, "description is not a string"},
 		{"null description treated absent", RawSurface{Era: "e", Pages: pagesOf(`{"name":"a","description":null}`)}, lim, ""},

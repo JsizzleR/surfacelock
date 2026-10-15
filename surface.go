@@ -253,6 +253,13 @@ func hashTool(rawTool json.RawMessage) (*Tool, error) {
 	if err := json.Unmarshal(nameRaw, &name); err != nil {
 		return nil, inadmissible("tool name is not a string")
 	}
+	// validName sees the DECODED name, where an unpaired surrogate escape has
+	// already become U+FFFD: "x\ud83d\u0041", which JCS accepts (measured), would
+	// be admitted, and pinned, as a different name than the one a JavaScript or
+	// Python client calls.
+	if !PairedSurrogates(nameRaw) {
+		return nil, inadmissible("tool name has an unpaired surrogate escape")
+	}
 	if err := validName(name, nameCapBytes); err != nil {
 		return nil, inadmissible("tool name %s", err)
 	}

@@ -32,6 +32,18 @@ type verifier struct {
 	// between pin and connect).
 	everClean bool
 
+	// callable is the session's verified tool list: the names on every tools/list
+	// page whose verdict forwards it to the client (under --warn, warn-forwarded
+	// pages included: they are what the client is served). A name joins when its
+	// page is verified, a moment before the page is written: the declaration it
+	// stands for is already the verified one. A tools/call naming anything else is
+	// refused, never forwarded, and every refused surface verdict empties it
+	// (revokeCalls) — a server whose surface was refused has no verified tools
+	// until a later page re-verifies them. Between refusals it only grows: a
+	// later page adds names and never removes one, so a removal forwarded under
+	// --warn leaves the removed tool callable.
+	callable map[string]bool
+
 	nextEnumID int
 }
 
@@ -46,6 +58,8 @@ type enumeration struct {
 	poisoned bool // a page was refused; no completion verdict can follow
 	warned   bool // drift was warn-forwarded into this enumeration; no clean claim can follow
 	complete bool
+
+	pageTools []string // the names on the page being verified; callable once it is forwarded
 
 	seenCursors map[string]bool
 	names       map[string]bool
@@ -69,7 +83,8 @@ func forwardVerdict(findings ...string) verdict { return verdict{findings: findi
 
 func newVerifier(entry *surfacelock.ServerLock, name string, warn bool, lim surfacelock.Limits) *verifier {
 	v := &verifier{entry: entry, name: name, warn: warn, lim: lim,
-		lockTools: make(map[string]*surfacelock.ToolLock, len(entry.Tools))}
+		lockTools: make(map[string]*surfacelock.ToolLock, len(entry.Tools)),
+		callable:  map[string]bool{}}
 	for i := range entry.Tools {
 		v.lockTools[entry.Tools[i].Name] = &entry.Tools[i]
 	}
@@ -279,11 +294,28 @@ func (v *verifier) verifyHandshake(flowObserved string, result json.RawMessage, 
 		flowObserved, era, shortHash(lock.HInstr)))
 }
 
+// revokeCalls empties the session's verified tool list. The core calls it on
+// every refused surface verdict, whatever refused it.
+func (v *verifier) revokeCalls() { clear(v.callable) }
+
 // verifyToolsPage verifies one tools/list result page within its enumeration and
 // returns the verdict plus the page's nextCursor ("" when the enumeration is
 // complete). The caller forwards or refuses based on the verdict and registers
-// the cursor only on forward.
+// the cursor only on forward. A page the verdict forwards makes its tools
+// callable; a refused one makes none of them callable (and the core revokes the
+// rest).
 func (v *verifier) verifyToolsPage(en *enumeration, result json.RawMessage) (verdict, string) {
+	en.pageTools = nil
+	vd, next := v.checkToolsPage(en, result)
+	if !vd.refuse {
+		for _, n := range en.pageTools {
+			v.callable[n] = true
+		}
+	}
+	return vd, next
+}
+
+func (v *verifier) checkToolsPage(en *enumeration, result json.RawMessage) (verdict, string) {
 	en.pages++
 	if en.pages > v.lim.MaxPages {
 		en.poisoned = true
@@ -307,6 +339,7 @@ func (v *verifier) verifyToolsPage(en *enumeration, result json.RawMessage) (ver
 				fmt.Errorf("duplicate tool name %q across pages", t.Name)), ""
 		}
 		en.names[t.Name] = true
+		en.pageTools = append(en.pageTools, t.Name)
 		en.bytes += len(t.Canon)
 		if en.bytes > v.lim.MaxSurfaceBytes {
 			en.poisoned = true
