@@ -23,8 +23,26 @@ import (
 )
 
 type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Code    rpcCode `json:"code"`
+	Message string  `json:"message"`
+}
+
+// rpcCode is a JSON-RPC error code: a JSON number of any spelling, since the
+// reference client compares the code as a JavaScript number, so -32022.0 is
+// -32022 and must not fail the decode before the refusal can be read
+// (modernRefusal). null reads as no code, as json.Number reads it. Any other
+// token is refused, with fixed text: json.Number
+// alone would take the string "-32022" as a number, and its refusal of any
+// other string quotes the whole string, up to the page cap.
+type rpcCode string
+
+func (c *rpcCode) UnmarshalJSON(b []byte) error {
+	var n json.Number
+	if len(b) == 0 || b[0] == '"' || json.Unmarshal(b, &n) != nil {
+		return errors.New("the error code is not a JSON number")
+	}
+	*c = rpcCode(n)
+	return nil
 }
 
 type envelope struct {
@@ -32,7 +50,84 @@ type envelope struct {
 	Method string          `json:"method,omitempty"`
 	Result json.RawMessage `json:"result,omitempty"`
 	Error  *rpcError       `json:"error,omitempty"`
+	raw    []byte          // the message as received, kept only for an error answer (stdio)
+	bad    error           // set by the stdio reader: the message cannot be read as one answer (answerKeys)
 }
+
+// answerError is a message the client cannot read as one JSON-RPC answer the
+// way an exact-key reader would. It is never classified: a server/discover
+// that draws one ends the fetch (classifyDiscoverFailure).
+type answerError struct{ text string }
+
+func (e *answerError) Error() string { return e.text }
+
+// answerKeys refuses a message carrying a case-variant of an envelope key at
+// its top level. The envelope is a struct, which encoding/json fills by
+// case-folded name, last wins, while a JSON-RPC peer (and modernRefusal) reads
+// the exact key: {"error":{...},"ERROR":null} would be a refusal to one reader
+// and an empty answer to the other, and {"id":2,"ID":1} two different answers.
+func answerKeys(raw []byte) error {
+	var top map[string]json.RawMessage
+	if json.Unmarshal(raw, &top) != nil {
+		return nil // the caller's own decode reports it
+	}
+	for k := range top {
+		for _, want := range [...]string{"id", "method", "result", "error"} {
+			if k != want && strings.EqualFold(k, want) {
+				return &answerError{fmt.Sprintf("the message carries a case-variant of %q: %+q", want, k)}
+			}
+		}
+	}
+	// Both members, whatever their values: the envelope reads "error":null as
+	// no error, while a reader that decides by key presence (the proxy) reads
+	// an error answer.
+	_, hasResult := top["result"]
+	if _, hasError := top["error"]; hasResult && hasError {
+		return &answerError{"the message carries both a result and an error"}
+	}
+	return nil
+}
+
+// answerResult is the result of a decoded answer to the request: an error
+// answer, or a result, and never neither (answerKeys refused both).
+func answerResult(method string, env *envelope, raw []byte) (json.RawMessage, error) {
+	if env.Error != nil {
+		return nil, newRPCCallError(method, env.Error, raw)
+	}
+	if env.Result == nil {
+		return nil, &answerError{method + ": the answer carries neither result nor error"}
+	}
+	return env.Result, nil
+}
+
+// rpcCallError is a JSON-RPC error answer, kept with the message bytes it came
+// in so a server/discover refusal can be classified exactly (modernRefusal).
+type rpcCallError struct {
+	text string
+	raw  []byte
+}
+
+func (e *rpcCallError) Error() string { return e.text }
+
+func newRPCCallError(method string, e *rpcError, raw []byte) error {
+	code := string(e.Code) // number syntax only, but of any length
+	if len(code) > 32 {
+		code = code[:32] + "..."
+	}
+	return &rpcCallError{text: fmt.Sprintf("%s: rpc error %s: %q", method, code, e.Message), raw: raw}
+}
+
+// httpStatusError is a non-2xx answer, kept with its status and its body (up
+// to the page cap; cut when longer) so a server/discover refusal can be
+// classified. Its text quotes only the body's first 300 bytes.
+type httpStatusError struct {
+	text   string
+	status int
+	body   []byte
+	cut    bool
+}
+
+func (e *httpStatusError) Error() string { return e.text }
 
 type session interface {
 	call(ctx context.Context, method string, params any) (json.RawMessage, error)
@@ -61,13 +156,13 @@ func resultFromMessage(raw []byte, id int64, method string) (json.RawMessage, er
 	if err := json.Unmarshal(raw, &env); err != nil {
 		return nil, fmt.Errorf("%s: bad json response: %w", method, err)
 	}
+	if err := answerKeys(raw); err != nil {
+		return nil, fmt.Errorf("%s: %w", method, err)
+	}
 	if !idMatches(env.ID, id) {
 		return nil, fmt.Errorf("%s: response id mismatch", method)
 	}
-	if env.Error != nil {
-		return nil, fmt.Errorf("%s: rpc error %d: %q", method, env.Error.Code, env.Error.Message)
-	}
-	return env.Result, nil
+	return answerResult(method, &env, raw)
 }
 
 func idMatches(raw json.RawMessage, id int64) bool {
@@ -205,8 +300,16 @@ func (h *httpSession) call(ctx context.Context, method string, params any) (json
 		h.sessionID = sid
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
-		return nil, fmt.Errorf("%s: HTTP %d: %q", method, resp.StatusCode, snippet)
+		// The whole body up to the page cap, so a modern refusal can be read; a
+		// body that runs past it, or breaks off, is cut and never classified.
+		body, rerr := io.ReadAll(io.LimitReader(resp.Body, int64(h.pageCap)+1))
+		cut := rerr != nil || len(body) > h.pageCap
+		if len(body) > h.pageCap {
+			body = body[:h.pageCap]
+		}
+		snippet := body[:min(len(body), 300)]
+		return nil, &httpStatusError{text: fmt.Sprintf("%s: HTTP %d: %q", method, resp.StatusCode, snippet),
+			status: resp.StatusCode, body: body, cut: cut}
 	}
 	ct := resp.Header.Get("Content-Type")
 	switch {
@@ -240,13 +343,14 @@ func (h *httpSession) readSSE(r io.Reader, id int64, method string) (json.RawMes
 		if err := json.Unmarshal([]byte(payload), &env); err != nil {
 			return nil, false, nil // non-JSON event; skip
 		}
+		if err := answerKeys([]byte(payload)); err != nil {
+			return nil, true, fmt.Errorf("%s: %w", method, err)
+		}
 		if !idMatches(env.ID, id) {
 			return nil, false, nil // notification or other id; skip
 		}
-		if env.Error != nil {
-			return nil, true, fmt.Errorf("%s: rpc error %d: %q", method, env.Error.Code, env.Error.Message)
-		}
-		return env.Result, true, nil
+		res, err := answerResult(method, &env, []byte(payload))
+		return res, true, err
 	}
 	for sc.Scan() {
 		line := sc.Text()
@@ -258,10 +362,17 @@ func (h *httpSession) readSSE(r io.Reader, id int64, method string) (json.RawMes
 			continue
 		}
 		if v, ok := strings.CutPrefix(line, "data:"); ok {
+			// An event's data lines join with a line feed, as every SSE reader
+			// joins them: concatenated, a number or string split across two lines
+			// would read as a message no other reader of the stream sees.
+			v = strings.TrimPrefix(v, " ")
+			if data.Len() > 0 {
+				v = "\n" + v
+			}
 			if data.Len()+len(v) > h.pageCap {
 				return nil, fmt.Errorf("%s: %w: sse event exceeds %d bytes", method, surfacelock.ErrInadmissible, h.pageCap)
 			}
-			data.WriteString(strings.TrimPrefix(v, " "))
+			data.WriteString(v)
 		}
 	}
 	if res, done, err := flush(); done || err != nil {
@@ -356,6 +467,9 @@ func newStdioSession(argv, extraEnv []string, lineCap int) (*stdioSession, error
 			if err := json.Unmarshal(line, &env); err != nil {
 				continue
 			}
+			if env.bad = answerKeys(line); env.Error != nil && env.bad == nil {
+				env.raw = append([]byte(nil), line...) // the scanner reuses its buffer
+			}
 			// Select on done so a reader parked here (consumer stopped draining
 			// after ctx cancellation or after the final page) is freed by close()
 			// instead of leaking — SIGKILL unblocks a pipe read, never a channel
@@ -408,13 +522,14 @@ func (s *stdioSession) call(ctx context.Context, method string, params any) (jso
 			if !ok {
 				return nil, fmt.Errorf("%s: %w", method, <-s.rdErr)
 			}
+			if env.bad != nil {
+				// Before the id: an aliased id is one of the readings in doubt.
+				return nil, fmt.Errorf("%s: %w", method, env.bad)
+			}
 			if !idMatches(env.ID, id) {
 				continue // notification or unrelated message
 			}
-			if env.Error != nil {
-				return nil, fmt.Errorf("%s: rpc error %d: %q", method, env.Error.Code, env.Error.Message)
-			}
-			return env.Result, nil
+			return answerResult(method, &env, env.raw)
 		case <-ctx.Done():
 			return nil, fmt.Errorf("%s: %w", method, ctx.Err())
 		}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"slices"
 	"time"
+	"unicode/utf8"
 
 	"github.com/JsizzleR/surfacelock"
 )
@@ -96,6 +97,117 @@ type errPreCommit struct{ err error }
 func (e errPreCommit) Error() string { return e.err.Error() }
 func (e errPreCommit) Unwrap() error { return e.err }
 
+// discoverVerdict is what a failed server/discover says about the classic
+// fallback (classifyDiscoverFailure).
+type discoverVerdict int
+
+const (
+	discoverFallback discoverVerdict = iota // no modern evidence: one classic attempt follows
+	discoverRetry                           // refused a revision it lists: ask once more
+	discoverTerminal                        // the reference client ends its probe here: no fallback
+)
+
+// offerHint names the way to the classic flow when the fallback is withheld.
+const offerHint = " (an offer before " + ModernRevision + " takes the classic flow)"
+
+// classifyDiscoverFailure follows the reference client's probe classifier
+// (@modelcontextprotocol/client 2.0.0, probeClassifier.ts, measured from its
+// published dist) on a server/discover that did not answer with a result.
+//
+// On every transport a message that cannot be read as one answer the way an
+// exact-key reader would (answerError: a case-variant envelope key, or an
+// answer with neither result nor error) ends the probe. Over HTTP it ends,
+// with no classic fallback, on 401, 403, any status from 500 and any status
+// below 200, whatever the body holds (the reference decides before reading
+// it; this client has read it, to the page cap, and ignores it); on a refusal
+// body past the page cap (or one that broke off), which cannot be classified;
+// and on any failure that leaves no answer to read (a transport error, the
+// deadline, a 2xx that is not a JSON-RPC message). Any other non-2xx body, and
+// every JSON-RPC error answer, is classified by modernRefusal. Over stdio
+// every other failure (a closed or silent child, a line past the cap) is no
+// modern evidence and falls back, as the reference's stdio probe does.
+//
+// Deliberate differences, each failing toward today's fallback or toward a
+// refusal, never toward a modern lock the reference would not reach: a
+// redirect is not followed (refuseRedirect) and its body is classified like
+// any other status's; a 2xx message Go's struct decoder refuses (for example a
+// duplicate member of a mismatched type, a non-string message, a non-numeric
+// code, nesting past Go's decoder depth) has no answer to read; a body or a
+// stdio line that does not parse as JSON for Go is no modern evidence.
+func classifyDiscoverFailure(sess session, err error, offered string) (discoverVerdict, string) {
+	var ae *answerError
+	if errors.As(err, &ae) {
+		return discoverTerminal, "its answer cannot be read as one JSON-RPC answer"
+	}
+	var rc *rpcCallError
+	if errors.As(err, &rc) {
+		return modernRefusal(rc.raw, offered)
+	}
+	var hs *httpStatusError
+	if errors.As(err, &hs) {
+		switch {
+		case hs.status < 200 || hs.status == http.StatusUnauthorized || hs.status == http.StatusForbidden || hs.status >= 500:
+			return discoverTerminal, fmt.Sprintf("the reference client ends its probe on HTTP %d", hs.status)
+		case hs.cut:
+			return discoverTerminal, "a refusal body that runs past the page cap or breaks off cannot be classified"
+		}
+		return modernRefusal(hs.body, offered)
+	}
+	if _, isHTTP := sess.(*httpSession); isHTTP {
+		return discoverTerminal, "it left no discover answer to read"
+	}
+	return discoverFallback, ""
+}
+
+// modernRefusal classifies a JSON-RPC error message as the reference's
+// classifyRpcError does: only -32022 UnsupportedProtocolVersion whose
+// data.supported is a non-empty array of strings is era evidence. A list naming
+// the offered revision earns one corrective retry; one naming any other
+// revision from ModernRevision on (compared as strings, as the reference does)
+// is a modern server with no revision in common, which gets no classic
+// fallback; a legacy-only list falls back. -32020, -32021, -32001 and every
+// other code are not era evidence and fall back. Keys are read exactly and
+// last-wins, as JSON.parse reads them, and the code as a number of any
+// spelling.
+func modernRefusal(msg []byte, offered string) (discoverVerdict, string) {
+	var top, e, data map[string]json.RawMessage
+	var code float64
+	var list []any
+	if json.Unmarshal(msg, &top) != nil || json.Unmarshal(top["error"], &e) != nil ||
+		json.Unmarshal(e["code"], &code) != nil || code != -32022 ||
+		json.Unmarshal(e["data"], &data) != nil || json.Unmarshal(data["supported"], &list) != nil || len(list) == 0 {
+		return discoverFallback, ""
+	}
+	supported := make([]string, len(list))
+	for i, v := range list {
+		s, ok := v.(string)
+		if !ok {
+			return discoverFallback, "" // a null or non-string element: not era evidence
+		}
+		supported[i] = s
+	}
+	switch {
+	case slices.Contains(supported, offered):
+		return discoverRetry, ""
+	case slices.ContainsFunc(supported, func(v string) bool { return v >= ModernRevision }):
+		return discoverTerminal, fmt.Sprintf("its -32022 lists modern revisions %s but not the offered %q", boundedList(supported), offered)
+	}
+	return discoverFallback, ""
+}
+
+// boundedList quotes a server-supplied list for an error, ASCII-escaped (so
+// the cut never splits a rune) and cut at 200 bytes.
+func boundedList(v []string) string {
+	q := fmt.Sprintf("%+q", v)
+	if len(q) > 200 {
+		q = q[:200] + "..."
+	}
+	return q
+}
+
+// isNull reports whether a raw JSON value is the literal null.
+func isNull(raw json.RawMessage) bool { return string(raw) == "null" }
+
 // Fetch runs one fresh session against the server and returns the verbatim
 // tools/list surface for admission by surfacelock.Admit, applying the
 // fetch-side hostile-input rules (SPEC.md §6): page byte caps, page count cap,
@@ -177,10 +289,29 @@ func fetchOnce(ctx context.Context, ref Ref, lim surfacelock.Limits, offered str
 		return nil, fmt.Errorf("start: %w", err)
 	}
 	defer sess.close(ctx)
+	var raw *surfacelock.RawSurface
 	if stateless {
-		return fetchModern(ctx, sess, offered, lim)
+		raw, err = fetchModern(ctx, sess, offered, lim)
+	} else {
+		raw, err = fetchClassic(ctx, sess, offered, lim)
 	}
-	return fetchClassic(ctx, sess, offered, lim)
+	return raw, dropBodies(err)
+}
+
+// dropBodies releases the response bytes an rpcCallError or httpStatusError
+// keeps for classification (up to the page cap each), so no failed fetch
+// returns them; the error's text and its chain are unchanged. A fetchOnce
+// error carries at most one of each: a session fails at its first failed call.
+func dropBodies(err error) error {
+	var rc *rpcCallError
+	if errors.As(err, &rc) {
+		rc.raw = nil
+	}
+	var hs *httpStatusError
+	if errors.As(err, &hs) {
+		hs.body = nil
+	}
+	return err
 }
 
 // metaEnvelope is the reserved `_meta` object every stateless-revision request
@@ -204,9 +335,10 @@ func resultFields(raw json.RawMessage, what string, keys ...string) (map[string]
 // instructions/serverInfo, then `_meta`-enveloped tools/list pages. The era is
 // the offered revision itself — each request names the dialect it speaks — and
 // discover's supportedVersions must confirm it, or the dialect the bytes were
-// served under is unknown and there is no surface to era-tag. Every failure up
-// to and including that confirmation is wrapped errPreCommit; nothing after it
-// is.
+// served under is unknown and there is no surface to era-tag. A failure up to
+// that confirmation is wrapped errPreCommit unless it ends the fetch outright (a
+// terminal discover refusal, classifyDiscoverFailure; a result with no exact
+// form); nothing after it is.
 func fetchModern(ctx context.Context, sess session, offered string, lim surfacelock.Limits) (*surfacelock.RawSurface, error) {
 	// Every stateless request names its dialect in an HTTP header as well as in
 	// _meta, and the two MUST agree — server/discover included, which is the
@@ -217,9 +349,39 @@ func fetchModern(ctx context.Context, sess session, offered string, lim surfacel
 	if h, ok := sess.(*httpSession); ok {
 		h.proto, h.stateless = offered, true
 	}
-	discRaw, err := sess.call(ctx, "server/discover", map[string]any{"_meta": metaEnvelope(offered)})
-	if err != nil {
+	var discRaw json.RawMessage
+	for attempt := 0; ; attempt++ {
+		res, err := sess.call(ctx, "server/discover", map[string]any{"_meta": metaEnvelope(offered)})
+		if err == nil {
+			discRaw = res
+			break
+		}
+		verdict, why := classifyDiscoverFailure(sess, err, offered)
+		var rc *rpcCallError
+		var hs *httpStatusError
+		if errors.As(err, &rc) || errors.As(err, &hs) {
+			// Keep the text only: no response body outlives its classification
+			// in the error a failed fetch returns.
+			err = errors.New(err.Error())
+		}
+		switch {
+		case verdict == discoverRetry && attempt == 0:
+			continue // the reference client's one corrective retry
+		case verdict == discoverRetry:
+			return nil, fmt.Errorf("server/discover: %w: it refused the offered %q again after one corrective retry, though its -32022 lists it, so no classic fallback%s",
+				err, offered, offerHint)
+		case verdict == discoverTerminal:
+			return nil, fmt.Errorf("server/discover: %w: %s, so no classic fallback%s", err, why, offerHint)
+		}
 		return nil, errPreCommit{err}
+	}
+	// The whole result exactly, before any of it is read (R-2608): a
+	// supportedVersions element Go would decode to U+FFFD is not "not this
+	// era", and reading it so would lock the classic flow over a modern answer;
+	// the canonicalizer refuses some such forms and passes others, so the check
+	// is on the raw bytes, and the refusal is terminal.
+	if !utf8.Valid(discRaw) || !surfacelock.PairedSurrogates(discRaw) {
+		return nil, fmt.Errorf("server/discover: %w: the result has no exact form (invalid UTF-8 or an unpaired surrogate escape)", surfacelock.ErrInadmissible)
 	}
 	obj, err := resultFields(discRaw, "server/discover", "supportedVersions", "serverInfo", "instructions")
 	if err != nil {
@@ -272,8 +434,13 @@ func fetchClassic(ctx context.Context, sess session, offered string, lim surface
 	if err != nil {
 		return nil, err
 	}
-	var era string
-	if err := json.Unmarshal(obj["protocolVersion"], &era); err != nil || era == "" {
+	era, err := surfacelock.ExactString(obj["protocolVersion"])
+	if errors.Is(err, surfacelock.ErrInadmissible) {
+		// Read exactly: the era is recorded and hashed, so a token Go would
+		// decode to U+FFFD would record a value the server never sent (R-2608).
+		return nil, fmt.Errorf("initialize: protocolVersion %w", err)
+	}
+	if err != nil || era == "" {
 		// No string protocolVersion means the surface cannot be era-tagged: there
 		// is no surface (SPEC.md §6), and that is a protocol failure, not drift.
 		return nil, fmt.Errorf("initialize: result carries no protocolVersion string")
@@ -331,12 +498,15 @@ func fetchPages(ctx context.Context, sess session, raw *surfacelock.RawSurface, 
 		if err := json.Unmarshal(page, &p); err != nil {
 			return fmt.Errorf("tools/list: %w: page does not parse: %v", surfacelock.ErrInadmissible, err)
 		}
-		if p.NextCursor == nil {
+		if p.NextCursor == nil || isNull(p.NextCursor) {
 			return nil
 		}
-		var next string
-		if err := json.Unmarshal(p.NextCursor, &next); err != nil {
-			return fmt.Errorf("tools/list: %w: nextCursor is not a string", surfacelock.ErrInadmissible)
+		// Exactly: the cursor keys the loop check and is sent back to the
+		// server, which must get the cursor it issued, not U+FFFD for a lone
+		// surrogate half (R-2608).
+		next, err := surfacelock.ExactString(p.NextCursor)
+		if err != nil {
+			return fmt.Errorf("tools/list: %w: nextCursor %v", surfacelock.ErrInadmissible, err)
 		}
 		if next == "" {
 			return nil

@@ -657,8 +657,11 @@ func listParams(params json.RawMessage) (cursor, era string, stateless bool, err
 		return "", "", false, err
 	}
 	if raw, ok := obj["cursor"]; ok && !isJSONNull(raw) {
-		if err := json.Unmarshal(raw, &cursor); err != nil {
-			return "", "", false, errors.New("cursor is not a string")
+		// Exactly: the cursor keys the issued-cursor map, so two wire cursors
+		// that decode to one Go string would let a cursor the upstream never
+		// issued continue an enumeration it did (R-2608).
+		if cursor, err = surfacelock.ExactString(raw); err != nil {
+			return "", "", false, fmt.Errorf("cursor %w", err)
 		}
 	}
 	era, stateless, err = metaEra(obj["_meta"])
@@ -742,8 +745,10 @@ func metaEra(metaRaw json.RawMessage) (era string, stateless bool, err error) {
 	if !ok || isJSONNull(raw) {
 		return "", false, nil
 	}
-	if err := json.Unmarshal(raw, &era); err != nil {
-		return "", false, errors.New("_meta protocolVersion is not a string")
+	// Exactly: the era is compared with the lock's and names the session's
+	// dialect (R-2608).
+	if era, err = surfacelock.ExactString(raw); err != nil {
+		return "", false, fmt.Errorf("_meta protocolVersion %w", err)
 	}
 	return era, true, nil
 }

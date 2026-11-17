@@ -156,7 +156,7 @@ func TestAdmitHostileInput(t *testing.T) {
 		// so any decoded-string check is vacuous against the wire.
 		{"invalid UTF-8 in page", RawSurface{Era: "e", Pages: []json.RawMessage{[]byte("{\"tools\":[{\"name\":\"a\",\"description\":\"b\xffc\"}]}")}}, lim, "not valid UTF-8"},
 		{"invalid UTF-8 in instructions", RawSurface{Era: "e", Instructions: json.RawMessage("\"i\xffj\""), Pages: pagesOf(valid)}, lim, "not valid UTF-8"},
-		{"lone surrogate escape", RawSurface{Era: "e", Pages: pagesOf(`{"name":"a","description":"\ud800"}`)}, lim, "Missing surrogate"},
+		{"lone surrogate escape", RawSurface{Era: "e", Pages: pagesOf(`{"name":"a","description":"\ud800"}`)}, lim, "unpaired surrogate escape"},
 		{"number beyond double range", RawSurface{Era: "e", Pages: pagesOf(`{"name":"a","inputSchema":{"type":"object","maximum":1e400}}`)}, lim, "out of range"},
 		{"missing era", RawSurface{Era: "", Pages: pagesOf(valid)}, lim, "protocolVersion is empty"},
 		{"control chars in era", RawSurface{Era: "20\n25", Pages: pagesOf(valid)}, lim, "control characters"},

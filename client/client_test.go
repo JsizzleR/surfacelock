@@ -318,6 +318,7 @@ func TestHelperProcess(t *testing.T) {
 	respond := func(id json.RawMessage, result string) {
 		fmt.Printf("{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":%s}\n", id, result)
 	}
+	discovers := 0
 	for {
 		var req struct {
 			ID     json.RawMessage `json:"id"`
@@ -330,6 +331,28 @@ func TestHelperProcess(t *testing.T) {
 			continue
 		}
 		switch req.Method {
+		case "server/discover":
+			switch mode {
+			case "die-at-discover":
+				os.Exit(1) // a closed child: no modern evidence
+			case "alias-at-discover":
+				// A modern-only refusal that a case-folding decoder reads as an
+				// empty answer: "ERROR":null clears the folded error field.
+				fmt.Printf("{\"jsonrpc\":\"2.0\",\"id\":%s,\"error\":{\"code\":-32022,\"message\":\"u\",\"data\":{\"supported\":[\"2027-03-01\"]}},\"ERROR\":null}\n", req.ID)
+				continue
+			}
+			if mode != "modern-corrective" {
+				fmt.Printf("{\"jsonrpc\":\"2.0\",\"id\":%s,\"error\":{\"code\":-32601,\"message\":\"method not found\"}}\n", req.ID)
+				continue
+			}
+			// A modern server that refuses the first probe with a correctable
+			// -32022 naming the offered revision, then confirms it.
+			discovers++
+			if discovers == 1 {
+				fmt.Printf("{\"jsonrpc\":\"2.0\",\"id\":%s,\"error\":{\"code\":-32022,\"message\":\"unsupported\",\"data\":{\"supported\":[\"2026-07-28\"]}}}\n", req.ID)
+				continue
+			}
+			respond(req.ID, `{"supportedVersions":["2026-07-28"],"serverInfo":{"name":"helper","version":"0"}}`)
 		case "initialize":
 			if mode == "die-early" {
 				os.Exit(1)
@@ -337,7 +360,7 @@ func TestHelperProcess(t *testing.T) {
 			respond(req.ID, `{"protocolVersion":"2025-11-25","serverInfo":{"name":"helper","version":"0"}}`)
 		case "tools/list":
 			switch mode {
-			case "happy":
+			case "happy", "modern-corrective", "die-at-discover", "alias-at-discover":
 				respond(req.ID, `{"tools":[{"name":"alpha","description":"a"}]}`)
 			case "chatty":
 				fmt.Println("WARN: starting up, please ignore")

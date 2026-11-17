@@ -2,10 +2,12 @@ package surfacelock
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // DecodeExact decodes a JSON object with exact-key discipline (SPEC.md §3.4): it
@@ -45,6 +47,38 @@ func Sanitize(s string) string {
 		return r
 	}, s)
 }
+
+// ExactString decodes a JSON string token that encoding/json represents
+// exactly. Raw invalid UTF-8 and an unpaired surrogate escape (PairedSurrogates)
+// both decode to U+FFFD, so two different wire values would read as one Go
+// string while the peer that sent them keeps them apart; such a token is
+// refused as inadmissible, never approximated. A token that is not a JSON
+// string at all is a plain error ("is not a string"), so each caller keeps its
+// own wording for that case. A reader that keys or compares a hostile cursor or
+// era decodes it through this function.
+func ExactString(raw []byte) (string, error) {
+	if len(raw) == 0 || raw[0] != '"' {
+		return "", errors.New("is not a string")
+	}
+	if !utf8.Valid(raw) {
+		return "", inexactError("is not valid UTF-8")
+	}
+	if !PairedSurrogates(raw) {
+		return "", inexactError("has no exact string form (a lone surrogate escape)")
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return "", errors.New("is not a string")
+	}
+	return s, nil
+}
+
+// inexactError reads as a suffix to the field it names ("cursor has no exact
+// string form ...") and is ErrInadmissible to errors.Is.
+type inexactError string
+
+func (e inexactError) Error() string { return string(e) }
+func (e inexactError) Unwrap() error { return ErrInadmissible }
 
 // PairedSurrogates reports whether every \u escape of a UTF-16 surrogate in a
 // JSON string token is one half of a high-low pair. A lone half has no UTF-8

@@ -2,9 +2,11 @@ package proxy
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/JsizzleR/surfacelock"
 )
@@ -227,7 +229,10 @@ func (v *verifier) verifyHandshake(flowObserved string, result json.RawMessage, 
 		if err != nil {
 			return v.inadmissibleVerdict("initialize result", err)
 		}
-		if err := json.Unmarshal(obj["protocolVersion"], &era); err != nil || era == "" {
+		if era, err = surfacelock.ExactString(obj["protocolVersion"]); errors.Is(err, surfacelock.ErrInadmissible) {
+			// Read exactly: the era is compared with the lock's (R-2608).
+			return v.inadmissibleVerdict("initialize result", fmt.Errorf("protocolVersion %w", err))
+		} else if err != nil || era == "" {
 			return v.inadmissibleVerdict("initialize result",
 				fmt.Errorf("no protocolVersion string — the surface cannot be era-tagged"))
 		}
@@ -246,6 +251,14 @@ func (v *verifier) verifyHandshake(flowObserved string, result json.RawMessage, 
 			if err := json.Unmarshal(raw, &supported); err != nil {
 				return v.inadmissibleVerdict("server/discover result",
 					fmt.Errorf("supportedVersions is not a string array"))
+			}
+			// Every element exactly, before any is compared with the era: an
+			// inexact one is refused, never read as "not this era" (R-2608). The
+			// array decoded as strings and nulls, so it is exact when its raw
+			// bytes are: no per-element copy of a list only the frame cap bounds.
+			if !utf8.Valid(raw) || !surfacelock.PairedSurrogates(raw) {
+				return v.inadmissibleVerdict("server/discover result",
+					fmt.Errorf("a supportedVersions element has no exact string form (invalid UTF-8 or a lone surrogate escape)"))
 			}
 		}
 		supportedOK := false
@@ -466,9 +479,10 @@ func pageNextCursor(result json.RawMessage) (string, error) {
 	if !ok || isJSONNull(raw) {
 		return "", nil
 	}
-	var next string
-	if err := json.Unmarshal(raw, &next); err != nil {
-		return "", fmt.Errorf("nextCursor is not a string")
+	// Exactly: the cursor keys the issued-cursor map and the loop check (R-2608).
+	next, err := surfacelock.ExactString(raw)
+	if err != nil {
+		return "", fmt.Errorf("nextCursor %w", err)
 	}
 	return next, nil
 }

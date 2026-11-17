@@ -182,8 +182,47 @@ outright), so a fetcher MUST select its flow from the offered revision:
   different bytes per flow and re-classify a deliberate inadmissibility as a
   transport failure. Only a PRE-commit failure falls back to one classic attempt, on
   a FRESH session (a reused stdio child could pre-queue responses for the fallback's
-  predictable request ids); if both fail, report both refusals and preserve each
-  arm's error class.
+  predictable request ids), and only one the rules below let fall back; if both
+  fail, report both refusals and preserve each arm's error class.
+  A fetcher reads a failed `server/discover` as the reference client's probe does,
+  so that a correctable or modern refusal is never re-read as a pre-revision server
+  and locked over the classic flow:
+  - A JSON-RPC error answer is era evidence only when its code is `-32022`
+    (`UnsupportedProtocolVersion`, compared as a number) and its
+    `error.data.supported` is a non-empty array of strings. A list naming the
+    offered revision earns ONE corrective re-send of `server/discover`, which
+    commits or fails on its own (a second such refusal is terminal); a list naming
+    other revisions, at least one of them sorting at or after `2026-07-28` as a
+    string (so `draft` counts), is a modern server with no revision in common, and
+    the fetch ends there; a list of other revisions only falls back. Every other
+    code (`-32020`, `-32021`, `-32001`, …) and every other `-32022` is no era
+    evidence and falls back.
+  - A message the fetcher cannot read as one JSON-RPC answer the way an exact-key
+    reader would ends the fetch on every transport: one carrying a case-variant of
+    `id`, `result`, `error` or `method` at its top level (a case-folding decoder
+    and an exact one would read different answers from it), or an answer to the
+    request carrying both `result` and `error` (whatever their values, `null`
+    included), or neither. A non-2xx HTTP body is never decoded as an envelope: it
+    is read by exact keys only, as an exact-key reader reads it. An error `code` is a
+    JSON number of any spelling (`-32022.0` is `-32022`); any other token, a
+    numeric string included, makes the message no JSON-RPC answer. An SSE event's
+    `data` lines join with a line feed, as every SSE reader joins them.
+  - Over Streamable HTTP, a `server/discover` answered with status 401, 403, any
+    status from 500, or any status below 200 ends the fetch whatever its body
+    holds; so does a refusal body past the page cap or one that breaks off, and
+    any failure that leaves no answer to read (a transport error, the deadline, a
+    2xx that is not a JSON-RPC message). Any other non-2xx body is read as a
+    JSON-RPC error answer, by the first rule.
+  - Over stdio, every other failure (a child that exits, stays silent until the
+    deadline, or writes a line past the cap) is no modern evidence and falls back;
+    a JSON-RPC error answer is read by the first rule. The fallback runs under the
+    same caller deadline, so after a child silent until that deadline it fails too.
+  - A `server/discover` result whose `supportedVersions` does not name the offered
+    revision is a pre-commit failure and falls back. A result carrying raw invalid
+    UTF-8 or an unpaired surrogate escape anywhere (§6) is refused as inadmissible,
+    with no fallback: it is a modern answer, and reading an inexact
+    `supportedVersions` element as "not this era" would lock the classic flow
+    over it.
 - **Offered pre-revision values (no recorded flow)**: the classic flow only —
   `initialize` (offering `protocol.offered`), `notifications/initialized`, then
   fully-paginated `tools/list`.
@@ -323,8 +362,33 @@ produces a drift verdict.
   case-variant cursor key could let a sloppy-decoder client continue an enumeration
   that an exact-case verifier believed complete, so a completeness verdict would
   cover a truncated surface.
+- **Inexact cursor and era tokens** — a `nextCursor`, an `initialize` result's
+  `protocolVersion`, or (at a proxy) a request's `cursor` or `_meta`
+  `io.modelcontextprotocol/protocolVersion`, or a `server/discover`
+  `supportedVersions` element, whose wire token carries raw invalid UTF-8 or an
+  unpaired UTF-16 surrogate escape in any form: a trailing lone half (`"c\ud83d"`),
+  a half before a non-surrogate escape (`"c\ud83d\u0041"`), a reversed pair
+  (`"\ude00\ud83d"`), two high or two low halves (`"\ud800\ud800"`). Go's
+  `encoding/json` decodes each to U+FFFD, so cursors the server keeps apart would
+  read as one (a fetcher's loop check finds a loop the server never made, a proxy
+  takes a continuation the upstream never issued for one it did, a cursor goes
+  back to the server as bytes it never issued) and an era would record a value
+  the server never sent. An RFC 8785 library may accept some of these forms
+  (measured: `gowebpki/jcs` accepts two consecutive surrogate escapes in any
+  order, such as `"\ud800\ud800"` and `"\ude00\ud83d"`), so this MUST be checked
+  on the raw token. A fetcher refuses such a
+  token as inadmissible, in a `server/discover` result anywhere (§3.4); a proxy
+  refuses a `tools/list` or `server/discover` request carrying one, and the
+  handshake result or `tools/list` page that carries one.
 - **Uncanonicalizable JSON** — any value RFC 8785 cannot transform (e.g. numbers outside
   IEEE-754 double range, lone surrogate escapes). Fail closed; never approximate.
+  A canonicalizer may pass some lone surrogate escapes (measured: `gowebpki/jcs`
+  accepts two consecutive surrogate escapes in any order and writes one
+  replacement for them, so descriptions ending `"\ud800\ud800"` and
+  `"\ude00\ud83d"` canonicalized identically and were admitted under one surface
+  hash), so an implementation MUST check every page and the `instructions` value
+  for unpaired surrogate escapes on the raw bytes; otherwise two descriptions a
+  client reads differently would hash, and verify, as one.
   Stated bound, inherent to RFC 8785's ES6 number serialization: integers of magnitude
   above 2^53 collapse to their nearest double (`9007199254740993` and
   `9007199254740992` canonicalize identically), so drift within one double-equivalence

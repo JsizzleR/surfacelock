@@ -116,6 +116,9 @@ func Admit(raw RawSurface, lim Limits) (*Surface, error) {
 		if !utf8.Valid(raw.Instructions) {
 			return nil, inadmissible("instructions are not valid UTF-8")
 		}
+		if !PairedSurrogates(raw.Instructions) {
+			return nil, inadmissible("instructions have an unpaired surrogate escape")
+		}
 		var instr string
 		if err := json.Unmarshal(raw.Instructions, &instr); err != nil {
 			return nil, inadmissible("instructions is not a string")
@@ -150,6 +153,12 @@ func Admit(raw RawSurface, lim Limits) (*Surface, error) {
 		// (against §3) and let drift hide behind U+FFFD-collapsed comparisons.
 		if !utf8.Valid(page) {
 			return nil, inadmissible("page %d is not valid UTF-8", pi+1)
+		}
+		// The same for unpaired surrogate escapes, which JCS passes in some forms
+		// and collapses (hashTool): the whole page, so a key outside the tools is
+		// covered as well.
+		if !PairedSurrogates(page) {
+			return nil, inadmissible("page %d has an unpaired surrogate escape", pi+1)
 		}
 		// Canonicalizing the whole page catches duplicate top-level keys (e.g. a
 		// second byte-identical "tools" member that a last-key-wins decoder would
@@ -233,6 +242,16 @@ func hashTool(rawTool json.RawMessage) (*Tool, error) {
 	if !utf8.Valid(rawTool) {
 		return nil, inadmissible("tool is not valid UTF-8")
 	}
+	// Unpaired surrogate escapes anywhere in the tool, name and description and
+	// schema alike: Go decodes each to U+FFFD while a JavaScript or Python client
+	// keeps it, and JCS accepts some forms ("\ud800\ud800", "\ude00\ud83d") and
+	// writes one replacement for them (measured), so two descriptions a client
+	// reads differently would hash as one, and a name would be pinned as a
+	// different name than the one a client calls. Here, not only in Admit, so
+	// Validate refuses stored bytes too.
+	if !PairedSurrogates(rawTool) {
+		return nil, inadmissible("tool has an unpaired surrogate escape")
+	}
 	// Refuse a tool object carrying a case-variant of a key this package reads by
 	// exact name — the case-variant aliasing shape, INSIDE the tool object, where the page
 	// and handshake guards do not reach. Applied here (the shared shape validator)
@@ -253,13 +272,8 @@ func hashTool(rawTool json.RawMessage) (*Tool, error) {
 	if err := json.Unmarshal(nameRaw, &name); err != nil {
 		return nil, inadmissible("tool name is not a string")
 	}
-	// validName sees the DECODED name, where an unpaired surrogate escape has
-	// already become U+FFFD: "x\ud83d\u0041", which JCS accepts (measured), would
-	// be admitted, and pinned, as a different name than the one a JavaScript or
-	// Python client calls.
-	if !PairedSurrogates(nameRaw) {
-		return nil, inadmissible("tool name has an unpaired surrogate escape")
-	}
+	// validName sees the DECODED name; its unpaired surrogate escapes were
+	// refused on the raw tool above.
 	if err := validName(name, nameCapBytes); err != nil {
 		return nil, inadmissible("tool name %s", err)
 	}
