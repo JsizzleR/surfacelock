@@ -111,7 +111,7 @@ They apply to the http transport; a stdio server takes its credentials through
 **From source** (Go 1.26+), which is also how CI pins an exact revision:
 
 ```sh
-go install github.com/JsizzleR/surfacelock/cmd/surfacelock@v0.2.5
+go install github.com/JsizzleR/surfacelock/cmd/surfacelock@v0.2.6
 ```
 
 **Prebuilt binaries** are attached to each GitHub release for darwin/arm64,
@@ -124,7 +124,7 @@ darwin/amd64, linux/amd64 and linux/arm64 — one static binary each, built with
 platform from the release assets —
 
 ```sh
-uv pip install ./surfacelock-0.2.5-py3-none-macosx_12_0_arm64.whl
+uv pip install ./surfacelock-0.2.6-py3-none-macosx_12_0_arm64.whl
 ```
 
 **npm** — a launcher package plus one platform package per binary, resolved by
